@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Claude Code 的本機設定（每台機器不同，不進版控）
+.claude/settings.local.json
+
+# 編輯器與作業系統
+.DS_Store
+*.swp
+
+# 分析結果的存放位置尚未決定（docs/System_arch.md 的未定之處），
+# 先不預留規則，決定之後再加。
