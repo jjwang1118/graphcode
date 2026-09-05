@@ -11,9 +11,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "3d-force-graph": "^1.80.0",
     "cytoscape": "^3.34.2",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "three-spritetext": "^1.10.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",

@@ -20,6 +20,8 @@ interface Props {
   onLevelChange: (level: number | null) => void;
   externals: ExternalMode;
   onExternalsChange: (externals: ExternalMode) => void;
+  renderer: '2d' | '3d';
+  onRendererChange: (renderer: '2d' | '3d') => void;
   view: ViewId;
   onViewChange: (view: ViewId) => void;
   layout: LayoutId;
@@ -39,6 +41,8 @@ export function Sidebar({
   onLevelChange,
   externals,
   onExternalsChange,
+  renderer,
+  onRendererChange,
   view,
   onViewChange,
   layout,
@@ -93,6 +97,27 @@ export function Sidebar({
         {error && (
           <div style={{ marginTop: 8, fontSize: 12, color: '#ff8a8a' }}>{error}</div>
         )}
+      </Section>
+
+      {/* experiment/3d 分支才有。2D 是 Cytoscape，3D 是 three.js。 */}
+      <Section title="畫布（實驗）">
+        <div style={{ display: 'flex', gap: 6 }}>
+          {(['2d', '3d'] as const).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => onRendererChange(mode)}
+              style={{
+                ...field,
+                cursor: 'pointer',
+                background: renderer === mode ? palette.directory : palette.background,
+                color: renderer === mode ? '#04121a' : palette.text,
+                borderColor: 'transparent',
+              }}
+            >
+              {mode.toUpperCase()}
+            </button>
+          ))}
+        </div>
       </Section>
 
       <Section title="層級">

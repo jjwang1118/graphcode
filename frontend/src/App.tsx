@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { analyze } from './api/client';
 import type { GraphDocument } from './api/types';
+import { Graph3D } from './components/Graph3D';
 import { GraphCanvas } from './components/GraphCanvas';
 import { Sidebar } from './components/Sidebar';
 import type { LayoutId } from './graph/layouts';
@@ -9,6 +10,22 @@ import { layoutFor } from './graph/levels';
 import { palette } from './graph/style';
 import { viewEdgeTypes, type ViewId } from './graph/views';
 import type { ExternalMode } from './api/types';
+
+function Pane({ visible, children }: { visible: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        visibility: visible ? 'visible' : 'hidden',
+        // 藏起來的那個不該吃到滑鼠事件
+        pointerEvents: visible ? 'auto' : 'none',
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
 /** 一次查詢的條件。全部都是後端的參數，前端只是收集它們。 */
 interface Query {
@@ -28,6 +45,8 @@ export default function App() {
   const [layout, setLayout] = useState<LayoutId>(layoutFor(3));
   const [spacing, setSpacing] = useState(2.2);
   const [query, setQuery] = useState('');
+  //: 這個分支才有的實驗開關。2D 是 Cytoscape，3D 是 three.js。
+  const [renderer, setRenderer] = useState<'2d' | '3d'>('3d');
   // 已經分析過的路徑。換層級要重打一次，得知道上次打的是哪個路徑。
   const [analyzed, setAnalyzed] = useState<string | null>(null);
 
@@ -78,6 +97,8 @@ export default function App() {
         onLevelChange={changeLevel}
         externals={externals}
         onExternalsChange={setExternals}
+        renderer={renderer}
+        onRendererChange={setRenderer}
         view={view}
         onViewChange={setView}
         layout={layout}
@@ -121,8 +142,21 @@ export default function App() {
           )}
         </header>
 
-        <main style={{ flex: 1, minHeight: 0 }}>
-          <GraphCanvas graph={graph} layout={layout} spacing={spacing} query={query} />
+        {/* 兩個畫布都常駐，只切可見性。條件渲染會把畫布整個卸載重建，3D 那邊
+            重建一次就起不來了；而且用 visibility 而不是 display:none，元素才
+            保得住尺寸——尺寸歸零的畫布切回來會是一片空白。 */}
+        <main style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+          <Pane visible={renderer === '2d'}>
+            <GraphCanvas
+              graph={graph}
+              layout={layout}
+              spacing={spacing}
+              query={query}
+            />
+          </Pane>
+          <Pane visible={renderer === '3d'}>
+            <Graph3D graph={graph} spacing={spacing} />
+          </Pane>
         </main>
       </div>
     </div>

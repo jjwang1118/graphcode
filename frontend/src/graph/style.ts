@@ -39,8 +39,8 @@ export const graphStyle = [
       'background-color': palette.file,
       'border-width': 1,
       'border-color': palette.border,
-      width: 18,
-      height: 18,
+      width: 15,
+      height: 15,
       'transition-property': 'opacity, border-color, border-width',
       'transition-duration': 180,
     },
@@ -55,8 +55,8 @@ export const graphStyle = [
       shape: 'round-rectangle' as const,
       'background-color': palette.directory,
       'background-opacity': 0.85,
-      width: 32,
-      height: 32,
+      width: 26,
+      height: 26,
       'font-size': 17,
     },
   },
@@ -65,8 +65,8 @@ export const graphStyle = [
     style: {
       shape: 'hexagon' as const,
       'background-color': palette.repo,
-      width: 60,
-      height: 60,
+      width: 46,
+      height: 46,
       'font-size': 20,
       'border-width': 2,
       'border-color': palette.repo,
@@ -77,8 +77,8 @@ export const graphStyle = [
     style: {
       shape: 'diamond' as const,
       'background-color': palette.external,
-      width: 24,
-      height: 24,
+      width: 20,
+      height: 20,
       'font-size': 15,
     },
   },
@@ -94,7 +94,7 @@ export const graphStyle = [
   {
     selector: 'edge',
     style: {
-      width: 1.6,
+      width: 1.4,
       'line-color': palette.edge,
       'line-opacity': 0.9,
       'curve-style': 'bezier' as const,
@@ -106,10 +106,10 @@ export const graphStyle = [
     },
   },
   {
-    // 依賴才是這個工具要回答的東西，畫得比骨架亮、比骨架粗
+    // 依賴與骨架**同樣粗**，只差顏色與箭頭。粗細留給「這條線代表幾筆」去表達，
+    // 一個視覺頻道只講一件事。
     selector: 'edge[type = "imports"]',
     style: {
-      width: 2.2,
       'line-color': palette.edgeImports,
       'target-arrow-color': palette.edgeImports,
       'arrow-scale': 1.1,
@@ -117,7 +117,10 @@ export const graphStyle = [
   },
   {
     // 聚合了幾筆就標幾——只有重疊時才標，免得每條線都掛一個 1。
-    // 粗細分三段而不是連續映射：收到目錄層時權重可能上百，連續映射會出現巨帶。
+    //
+    // 粗細分段而不是連續映射：收到目錄層時權重可能上看數十，連續映射會出現巨
+    // 帶。門檻也是照收合後的量級訂的——原本訂在 1/4/9，但目錄層有七成的邊都在
+    // 那之上，等於每條線都「粗」，粗細就不帶訊息了。
     selector: 'edge[count > 1]',
     style: {
       label: 'data(count)',
@@ -126,11 +129,11 @@ export const graphStyle = [
       'text-background-color': palette.background,
       'text-background-opacity': 0.85,
       'text-background-padding': '2px',
-      width: 3,
     },
   },
-  { selector: 'edge[count > 4]', style: { width: 4.5 } },
-  { selector: 'edge[count > 9]', style: { width: 6 } },
+  { selector: 'edge[count > 2]', style: { width: 2 } },
+  { selector: 'edge[count > 8]', style: { width: 2.8 } },
+  { selector: 'edge[count > 20]', style: { width: 3.6 } },
 
   // ── 互動狀態 ────────────────────────────────────────────────
   { selector: '.dim', style: { opacity: 0.12 } },

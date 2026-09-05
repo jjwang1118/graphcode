@@ -251,17 +251,26 @@ function runLayout(
   running.run();
 }
 
-// 全部塞進畫面常常小到看不清字。定一個起始的最小倍率，不夠大就改成從根節點
-// 附近看起，其餘用拖曳或縮圖去找。
+// 自動對焦要有上下限。
+//
+// 下限：節點多的時候全部塞進畫面會小到看不清字，寧可從根節點附近看起。
+// 上限：節點少的時候（收合到目錄層只剩幾十個）fit 會把鏡頭拉得很近，所有東西
+//       的螢幕尺寸都被放大——看起來像是節點與線變粗了，其實只是鏡頭太近。
 const INITIAL_MIN_ZOOM = 0.8;
+const INITIAL_MAX_ZOOM = 1.1;
 
 function frameGraph(main: cytoscape.Core) {
   main.fit(undefined, 40);
-  if (main.zoom() >= INITIAL_MIN_ZOOM) return;
 
-  main.zoom(INITIAL_MIN_ZOOM);
+  const zoom = main.zoom();
+  if (zoom >= INITIAL_MIN_ZOOM && zoom <= INITIAL_MAX_ZOOM) return;
+
+  main.zoom(Math.min(Math.max(zoom, INITIAL_MIN_ZOOM), INITIAL_MAX_ZOOM));
+  // 縮到下限時圖比畫面大，從根節點看起最有頭緒；放到上限時整張圖仍塞得下，
+  // 對準整張圖的中心即可。
   const root = main.nodes('[type = "repo"]');
-  main.center(root.nonempty() ? root : main.elements());
+  const focus = zoom < INITIAL_MIN_ZOOM && root.nonempty() ? root : main.elements();
+  main.center(focus);
 }
 
 // 以整張圖的中心為支點等比例拉開座標。用 Cytoscape 的 spacingFactor 只有部分層
