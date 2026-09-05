@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
 
-import type { GraphDocument } from '../api/types';
+import type { ExternalMode, GraphDocument } from '../api/types';
 import { layoutLabels, type LayoutId } from '../graph/layouts';
+import {
+  externalLabels,
+  levelFromKey,
+  levelKey,
+  levels,
+} from '../graph/levels';
 import { palette } from '../graph/style';
 import { viewLabels, type ViewId } from '../graph/views';
 
@@ -10,6 +16,10 @@ interface Props {
   onPathChange: (path: string) => void;
   onAnalyze: () => void;
   loading: boolean;
+  level: number | null;
+  onLevelChange: (level: number | null) => void;
+  externals: ExternalMode;
+  onExternalsChange: (externals: ExternalMode) => void;
   view: ViewId;
   onViewChange: (view: ViewId) => void;
   layout: LayoutId;
@@ -25,6 +35,10 @@ export function Sidebar({
   onPathChange,
   onAnalyze,
   loading,
+  level,
+  onLevelChange,
+  externals,
+  onExternalsChange,
   view,
   onViewChange,
   layout,
@@ -81,22 +95,54 @@ export function Sidebar({
         )}
       </Section>
 
-      <Section title="視圖">
+      <Section title="層級">
         <select
-          value={view}
-          onChange={(event) => onViewChange(event.target.value as ViewId)}
+          value={levelKey(level)}
+          onChange={(event) => onLevelChange(levelFromKey(event.target.value))}
           style={field}
         >
-          {Object.entries(viewLabels).map(([id, label]) => (
-            <option key={id} value={id}>
+          {levels.map((option) => (
+            <option key={levelKey(option.value)} value={levelKey(option.value)}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+
+        <label style={{ ...caption, display: 'block', marginTop: 12 }}>外部套件</label>
+        <select
+          value={externals}
+          onChange={(event) => onExternalsChange(event.target.value as ExternalMode)}
+          style={{ ...field, marginTop: 4 }}
+        >
+          {Object.entries(externalLabels).map(([mode, label]) => (
+            <option key={mode} value={mode}>
               {label}
             </option>
           ))}
         </select>
-        <div style={{ ...caption, marginTop: 6, lineHeight: 1.4 }}>
-          切視圖＝換一個查詢條件，會重新向後端要一次
+
+        <div style={{ ...caption, marginTop: 8, lineHeight: 1.4 }}>
+          收合在後端做，換層級會重新向後端要一次
         </div>
       </Section>
+
+      {/* 視圖切換（全部／目錄樹／依賴圖）先停用：收合之後 contains 表現成「你在
+          哪一層」，那個軸自然消失。程式碼留著，要回頭把 SHOW_VIEWS 打開即可。 */}
+      {SHOW_VIEWS && (
+        <Section title="視圖">
+          <select
+            value={view}
+            onChange={(event) => onViewChange(event.target.value as ViewId)}
+            style={field}
+          >
+            {Object.entries(viewLabels).map(([id, label]) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </Section>
+      )}
 
       <Section title="排版">
         <select
@@ -119,20 +165,53 @@ export function Sidebar({
         <Legend color={palette.directory} shape="square" label="directory" />
         <Legend color={palette.file} shape="circle" label="file" />
         <Legend color={palette.external} shape="diamond" label="external package" />
-        <div style={{ ...caption, marginTop: 8, lineHeight: 1.5 }}>
-          細暗線＝contains（骨架）
-          <br />
-          粗亮線＝imports（依賴）
-          <br />
-          線上的數字＝同一對之間有幾筆
+
+        <div
+          style={{
+            marginTop: 12,
+            paddingTop: 12,
+            borderTop: `1px solid ${palette.border}`,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 9,
+          }}
+        >
+          <LineLegend color={palette.edge} thickness={2} label="contains" note="骨架" />
+          <LineLegend
+            color={palette.edgeImports}
+            thickness={3.5}
+            label="imports"
+            note="依賴"
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <span
+              style={{
+                width: 30,
+                textAlign: 'center',
+                fontSize: 12,
+                color: palette.text,
+                background: palette.background,
+                border: `1px solid ${palette.border}`,
+                borderRadius: 3,
+                padding: '1px 0',
+              }}
+            >
+              5
+            </span>
+            <span style={{ fontSize: 12.5, color: palette.text }}>
+              同一對之間有幾筆
+            </span>
+          </div>
         </div>
       </Section>
 
       {graph && (
         <Section title="統計">
-          <Row label="節點" value={graph.meta.node_count} />
-          <Row label="邊" value={graph.meta.edge_count} />
-          <Row label="循環" value={graph.meta.cycles.length} />
+          <div style={{ display: 'flex', gap: 18, marginBottom: 10 }}>
+            <Stat label="節點" value={graph.meta.node_count} />
+            <Stat label="邊" value={graph.meta.edge_count} />
+            <Stat label="循環" value={graph.meta.cycles.length} />
+          </div>
           {/* 只在不是 0 的時候顯示：平常沒事就不該佔版面，出事一定要看得到 */}
           {graph.meta.parse_failures > 0 && (
             <Row label="解析失敗" value={graph.meta.parse_failures} warn />
@@ -148,6 +227,9 @@ export function Sidebar({
     </aside>
   );
 }
+
+//: 視圖切換暫時停用，見上方註解。改成 true 就回到收合方案之前的樣子。
+const SHOW_VIEWS = false;
 
 const field: React.CSSProperties = {
   width: '100%',
@@ -223,10 +305,10 @@ function Legend({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 8,
-        fontSize: 12,
+        gap: 9,
+        fontSize: 12.5,
         color: palette.text,
-        marginBottom: 6,
+        marginBottom: 7,
       }}
     >
       <span
@@ -239,6 +321,46 @@ function Legend({
         }}
       />
       {label}
+    </div>
+  );
+}
+
+// 兩種邊在畫面上長什麼樣，圖例就畫成什麼樣——用文字描述「細暗線」很難對得起來。
+function LineLegend({
+  color,
+  thickness,
+  label,
+  note,
+}: {
+  color: string;
+  thickness: number;
+  label: string;
+  note: string;
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+      <span
+        style={{
+          width: 30,
+          height: thickness,
+          background: color,
+          borderRadius: thickness,
+          flexShrink: 0,
+        }}
+      />
+      <span style={{ fontSize: 12.5, color: palette.text }}>
+        {label}
+        <span style={{ color: palette.textDim, marginLeft: 8 }}>{note}</span>
+      </span>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <div style={{ fontSize: 20, color: palette.text, lineHeight: 1.1 }}>{value}</div>
+      <div style={{ ...caption, marginTop: 2 }}>{label}</div>
     </div>
   );
 }

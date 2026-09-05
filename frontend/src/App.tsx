@@ -5,26 +5,44 @@ import type { GraphDocument } from './api/types';
 import { GraphCanvas } from './components/GraphCanvas';
 import { Sidebar } from './components/Sidebar';
 import type { LayoutId } from './graph/layouts';
+import { layoutFor } from './graph/levels';
 import { palette } from './graph/style';
-import { viewEdgeTypes, viewLayout, type ViewId } from './graph/views';
+import { viewEdgeTypes, type ViewId } from './graph/views';
+import type { ExternalMode } from './api/types';
+
+/** 一次查詢的條件。全部都是後端的參數，前端只是收集它們。 */
+interface Query {
+  view: ViewId;
+  level: number | null;
+  externals: ExternalMode;
+}
 
 export default function App() {
   const [path, setPath] = useState('');
   const [graph, setGraph] = useState<GraphDocument | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [level, setLevel] = useState<number | null>(3);
+  const [externals, setExternals] = useState<ExternalMode>('grouped');
   const [view, setView] = useState<ViewId>('all');
-  const [layout, setLayout] = useState<LayoutId>('force');
+  const [layout, setLayout] = useState<LayoutId>(layoutFor(3));
   const [spacing, setSpacing] = useState(2.2);
   const [query, setQuery] = useState('');
-  // 已經分析過的路徑。切視圖要重打一次，得知道上次打的是哪個路徑。
+  // 已經分析過的路徑。換層級要重打一次，得知道上次打的是哪個路徑。
   const [analyzed, setAnalyzed] = useState<string | null>(null);
 
-  async function run(target: string, targetView: ViewId) {
+  async function run(target: string, request: Query) {
     setLoading(true);
     setError(null);
     try {
-      setGraph(await analyze({ path: target, edge_types: viewEdgeTypes[targetView] }));
+      setGraph(
+        await analyze({
+          path: target,
+          edge_types: viewEdgeTypes[request.view],
+          level: request.level,
+          externals: request.externals,
+        }),
+      );
       setAnalyzed(target);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '分析失敗');
@@ -35,17 +53,18 @@ export default function App() {
     }
   }
 
-  // 切視圖＝換一個請求參數，不是換元件。篩選由後端做，前端不碰圖的運算。
+  // 換層級／視圖＝換一個請求參數，不是換元件。收合與篩選都由後端做，前端不碰
+  // 圖的運算。
   useEffect(() => {
-    if (analyzed) void run(analyzed, view);
-    // 只認 view：path 改了要按分析鈕，不該邊打字邊送請求。
+    if (analyzed) void run(analyzed, { view, level, externals });
+    // 只認這三個：path 改了要按分析鈕，不該邊打字邊送請求。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view]);
+  }, [view, level, externals]);
 
-  function changeView(next: ViewId) {
-    setView(next);
-    // 排版跟著視圖走：contains 是樹，其餘有環。之後仍可手動改。
-    setLayout(viewLayout[next]);
+  function changeLevel(next: number | null) {
+    setLevel(next);
+    // 排版跟著層級走：檔案層是樹狀好排，收合過的有環。之後仍可手動改。
+    setLayout(layoutFor(next));
   }
 
   return (
@@ -53,10 +72,14 @@ export default function App() {
       <Sidebar
         path={path}
         onPathChange={setPath}
-        onAnalyze={() => void run(path, view)}
+        onAnalyze={() => void run(path, { view, level, externals })}
         loading={loading}
+        level={level}
+        onLevelChange={changeLevel}
+        externals={externals}
+        onExternalsChange={setExternals}
         view={view}
-        onViewChange={changeView}
+        onViewChange={setView}
         layout={layout}
         onLayoutChange={setLayout}
         spacing={spacing}

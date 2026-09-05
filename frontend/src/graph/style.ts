@@ -13,8 +13,9 @@ export const palette = {
   directory: '#7de2ff',
   file: '#5b6b8c',
   external: '#f0883e',
-  //: `contains` 是骨架，畫得比 `imports` 暗——差異靠亮度不靠色相，免得畫面變彩虹
-  edge: '#2c3d5c',
+  //: `contains` 是骨架，`imports` 是依賴。除了亮度，再用色相分開——原本兩者都
+  //: 是藍色系，只差明暗，實際看還是分不太出來
+  edge: '#46705c',
   edgeImports: '#7aa2e3',
   danger: '#ff6b6b',
   accent: '#a78bfa',
@@ -93,7 +94,7 @@ export const graphStyle = [
   {
     selector: 'edge',
     style: {
-      width: 1.2,
+      width: 1.6,
       'line-color': palette.edge,
       'line-opacity': 0.9,
       'curve-style': 'bezier' as const,
@@ -115,7 +116,8 @@ export const graphStyle = [
     },
   },
   {
-    // 聚合了幾筆就標幾——只有重疊時才標，免得每條線都掛一個 1
+    // 聚合了幾筆就標幾——只有重疊時才標，免得每條線都掛一個 1。
+    // 粗細分三段而不是連續映射：收到目錄層時權重可能上百，連續映射會出現巨帶。
     selector: 'edge[count > 1]',
     style: {
       label: 'data(count)',
@@ -127,6 +129,8 @@ export const graphStyle = [
       width: 3,
     },
   },
+  { selector: 'edge[count > 4]', style: { width: 4.5 } },
+  { selector: 'edge[count > 9]', style: { width: 6 } },
 
   // ── 互動狀態 ────────────────────────────────────────────────
   { selector: '.dim', style: { opacity: 0.12 } },

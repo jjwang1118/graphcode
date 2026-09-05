@@ -54,8 +54,14 @@ export interface GraphDocument {
   meta: Meta;
 }
 
+/** 外部套件在收合後怎麼呈現。 */
+export type ExternalMode = 'full' | 'grouped' | 'hidden';
+
 /** `POST /api/analyze` 的 body。`edge_types` 省略＝整張圖。 */
 export interface AnalyzeRequest {
   path: string;
   edge_types?: EdgeType[];
+  /** 收合到 `contains` 樹的第幾層（0＝repo，1＝它的直接子項）；省略＝不收合。 */
+  level?: number | null;
+  externals?: ExternalMode;
 }

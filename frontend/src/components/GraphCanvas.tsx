@@ -264,8 +264,16 @@ function frameGraph(main: cytoscape.Core) {
   main.center(root.nonempty() ? root : main.elements());
 }
 
-// 以整張圖的中心為支點等比例縮放。用 Cytoscape 的 spacingFactor 只有部分層次
-// 會動，自己算才能保證每一條線都等比例變長。
+// 以整張圖的中心為支點等比例拉開座標。用 Cytoscape 的 spacingFactor 只有部分層
+// 次會動，自己算才能保證每一條線都等比例變長。
+//
+// **鏡頭刻意不動**：節點的大小是模型單位，鏡頭不變就代表螢幕上的節點大小不變，
+// 而座標拉開了，所以間距真的變大。代價是整張圖會長出畫面外——那是必然的，節點
+// 大小固定、間距變大，總範圍就一定變大。
+//
+// 曾經試過反向補償鏡頭讓整張圖佔的範圍不變，但那會讓節點跟著縮小，看起來就成
+// 了「整張圖縮小」。三件事（節點大小不變／間距變大／總範圍不變）不可能同時成
+// 立，這裡選擇固定節點大小。
 function rescale(main: cytoscape.Core, factor: number) {
   if (factor === 1 || !Number.isFinite(factor)) return;
 

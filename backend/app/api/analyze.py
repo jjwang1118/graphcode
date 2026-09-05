@@ -9,7 +9,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.graph import BuildError
+from app.graph import BuildError, ExternalMode, collapse, only_edges
 from app.ingest import IngestError, allowed_roots_from_env, from_local_path
 from app.models import EdgeType, GraphDocument
 from app.pipeline import analyze as run_pipeline
@@ -23,6 +23,10 @@ class AnalyzeRequest(BaseModel):
     path: str
     #: 省略就是整張圖；給了就只保留這些型別的邊。
     edge_types: list[EdgeType] | None = None
+    #: 收合到 `contains` 樹的第幾層（0＝repo，1＝它的直接子項）；省略＝不收合。
+    level: int | None = None
+    #: 外部套件怎麼呈現：全部畫 / 合成一個 / 藏起來。
+    externals: ExternalMode = "full"
 
 
 @router.post("/api/analyze", response_model=GraphDocument)
@@ -41,6 +45,11 @@ def analyze(request: AnalyzeRequest) -> GraphDocument:
         logger.exception("組圖失敗")
         raise HTTPException(status_code=500, detail="分析失敗") from None
 
+    # 兩個都是查詢條件，順序固定：**先收合再篩邊**。收合要靠 contains 邊算層級，
+    # 先篩成 imports 視圖的話那些邊就沒了，收不動。
+    document = collapse(
+        graph.document(), level=request.level, externals=request.externals
+    )
     if request.edge_types:
-        return graph.view(*request.edge_types)
-    return graph.document()
+        return only_edges(document, request.edge_types)
+    return document

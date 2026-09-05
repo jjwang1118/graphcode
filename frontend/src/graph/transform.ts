@@ -66,7 +66,7 @@ function aggregate(edges: Edge[]): CytoscapeEdge[] {
     const id = `${edge.type}:${edge.source}->${edge.target}`;
     const existing = merged.get(id);
     if (existing) {
-      existing.data.count += 1;
+      existing.data.count += weightOf(edge);
       existing.data.detail += `\n${describe(edge)}`;
       continue;
     }
@@ -76,13 +76,19 @@ function aggregate(edges: Edge[]): CytoscapeEdge[] {
         source: edge.source,
         target: edge.target,
         type: edge.type,
-        count: 1,
+        count: weightOf(edge),
         detail: describe(edge),
       },
     });
   }
 
   return [...merged.values()];
+}
+
+// 收合過的邊後端已經合併好，帶著 `weight`；沒收合的一筆就是一。
+function weightOf(edge: Edge): number {
+  const weight = edge.properties.weight;
+  return typeof weight === 'number' ? weight : 1;
 }
 
 function describe(edge: Edge): string {
