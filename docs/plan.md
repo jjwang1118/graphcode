@@ -22,7 +22,7 @@
 |---|---|---|---|---|---|---|
 | 0.1 | 定義 CLAUDE.md | 設計內容定稿：範圍、圖模型、架構各段之間無互相矛盾，且沒有指向已刪除小節的引用 | CLAUDE.md | 完成 | 2026-09-04 | |
 | 0.2 | 定義目錄架構 | 每個資料夾寫明放什麼，前後端各自成一個獨立子專案 | docs/System_arch.md | 完成 | 2026-09-04 | |
-| 0.3 | `git init`、加 `.gitignore` | 能提交一次 commit，暫存/快取檔不進版控 | | 待辦 | | |
+| 0.3 | `git init`、加 `.gitignore` | 能提交一次 commit，暫存/快取檔不進版控 | | 完成 | 2026-09-06 | 第一個 commit `cef238b`，83 個檔案。**時機是使用者要求的**：準備把「視圖切換」改成「縮放換層級」，需要一個回得去的點。`.gitignore` 擋掉 `__pycache__`／各種 cache／`node_modules`／`dist`／`.claude/settings.local.json`（本機設定）。分析結果的存放位置仍未定，所以沒有預留規則 |
 | 0.4 | 建立 conda 環境 | `conda create -n codegraph python=3.11` 後 `python -V` 為 3.11 | | 待辦 | | 環境已存在（Python 3.11.16），fastapi / networkx / pydantic / pytest / ruff / mypy 均已安裝。尚未結案的原因：① `requirements.txt` 要收哪些套件待確認 ② 環境內有一個 `codegraph 0.1.0` 的 editable 安裝指向空目錄，來源不明，未處理 |
 | 0.5 | backend 骨架 | `backend/app/` 九個套件目錄與 `backend/tests/` 建立完成，`pytest` 跑得起來 | docs/System_arch.md | 完成 | 2026-09-04 | 原完成條件含 `requirements.txt` 與 ruff / mypy 設定，兩者都移除：前者內容待確認，後者在零程式碼時定不出有根據的值，改為需要時再開檔。`main.py` 只有 FastAPI app 實例，`/api/ping` 留給 0.7 |
 | 0.6 | frontend 骨架 | Vite + React + TS 建起，vite proxy 把 `/api` 轉到 `:8000`，`npm run build` 通過 | docs/System_arch.md | 完成 | 2026-09-04 | **Vite 釘在 6.x**，因為本機 Node 為 v18.19.1，而 Vite 7 要求 Node `^20.19` 或 `>=22.12`。Node 升級後可單獨升 Vite。尚未安裝 Cytoscape.js（屬 1.10） |
