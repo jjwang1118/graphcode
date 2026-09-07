@@ -4,12 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 互動守則
 
-以下三點優先於本文件其餘所有內容。
+以下五點優先於本文件其餘所有內容。
 
 1. **低耦合優先** — 任何模組、函數或其他實作單位，都以低耦合為第一考量：依賴介面而非具體實作、不跨層直接碰內部狀態、每個單位都能單獨測試與替換。若某個做法會讓兩處必須同進同出地一起改，先講出來再決定。
 2. **最小修改** — 只改必要之處。不順手重構、不調整無關的命名或格式、不擴大變更範圍；與當前需求無關的問題只回報，不逕行修好。
 3. **先說明理解、取得同意再動作** — 進行任何實作、修改或執行動作前，先說明你對需求的理解以及打算怎麼做，等使用者同意後才實際執行。唯讀的查看與搜尋不在此限。
 4. **文件要結構化** — 撰寫或修改任何文件時，以主題切分小節、下標題、用表格或條列呈現並列的項目，小節之間以 `---` 分隔。不要把不同主題的內容混在同一段長文字裡。**主題不同就分成不同檔案**，不要什麼都往同一份文件塞；動手前先說明打算開哪些檔案、各放什麼。
+5. **動組件前先讀它的文件，動完只同步改到的地方** — 哪個組件對應哪一份文件見「目錄對應關係」，那裡也有完整的四條規則。文件是規格、程式碼是它的實作，**不讀就改等於在猜規格**；改完只更新這次真的動到的敘述，沒動到的不要順手改寫。跨兩個組件就兩份都讀、兩份都同步。發現規格本身寫錯或做不到，**先說**，不要逕自改文件去遷就實作。
 
 ## 專案目標
 
@@ -331,3 +332,28 @@ build 不在乎節點與邊從哪來，**因此分析路徑與讀取路徑共用
 ## 目錄對應關係
 
 哪一層放什麼檔案定義在 **`docs/System_arch.md`**，此處不重複。頂層為 `backend/`、`frontend/`、`docs/` 三者並列。
+
+### 組件 → 對應文件
+
+| 組件 | 程式碼 | 文件 |
+|---|---|---|
+| ingest | `backend/app/ingest/` | `docs/backend/ingest.md` |
+| scan | `backend/app/scan/` | `docs/backend/scan.md` |
+| parse | `backend/app/parsers/` | `docs/backend/parse.md` |
+| resolve | `backend/app/resolve/` | `docs/backend/resolve.md` |
+| 語言 registry | `backend/app/languages/` | `docs/backend/parse.md` ＋ `docs/backend/resolve.md`（各講自己那一半） |
+| build／查詢層／收合／存檔 | `backend/app/graph/` | `docs/backend/graph.md` |
+| serialize（schema、id 規則） | `backend/app/models/` | `docs/backend/graph_schema.md` |
+| API 與管線編排 | `backend/app/api/`、`main.py`、`pipeline.py` | `docs/backend/api.md` |
+| 後端全體（規格書格式、跨元件的決定） | `backend/` | `docs/Backend.md` |
+| 前端全體（資料流、視覺編碼、畫布、互動、硬性規則） | `frontend/src/` | `docs/Frontend.md` |
+| 前後端契約 | `frontend/src/api/types.ts` ↔ `backend/app/models/` | `docs/backend/graph_schema.md` ＋ `docs/Frontend.md › 契約` |
+| 目錄結構 | 全部 | `docs/System_arch.md` |
+| 範圍與進度 | 全部 | `docs/plan.md` |
+
+### 動程式碼前後
+
+1. **動之前先讀對應文件。** 文件寫的是規格，程式碼是它的實作——不讀就改等於在猜規格。
+2. **動之後同步文件，但只改這次真的動到的地方。** 沒動到的敘述不要順手改寫、不要重排、不要「順便修正」。
+3. 改動跨兩個組件，就兩份都要讀、兩份都要同步。
+4. 若實作後發現文件寫的規格是錯的或做不到，**先說**，不要逕自改文件讓它符合程式碼。文件是規格，被實作倒過來覆寫的話就失去校準的作用了。
