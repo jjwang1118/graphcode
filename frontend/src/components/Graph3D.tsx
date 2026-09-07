@@ -58,6 +58,18 @@ function isImport(link: object): boolean {
   return (link as { type?: string }).type === 'imports';
 }
 
+/** 這條線聚合了幾筆。`transform.ts` 算好的，沒有就當一筆。 */
+function countOf(link: object): number {
+  const count = (link as { count?: unknown }).count;
+  return typeof count === 'number' ? count : 1;
+}
+
+/** `linkPositionUpdate` 收到的線段兩端座標。 */
+interface LinkEnds {
+  start: { x: number; y: number; z: number };
+  end: { x: number; y: number; z: number };
+}
+
 // d3 跑完之後 source / target 會從 id 字串換成節點物件，兩種都要認得。
 function endsOf(link: object): [string, string] {
   const { source, target } = link as { source: unknown; target: unknown };
@@ -73,6 +85,16 @@ function idOf(end: unknown): string {
 /** 淡化用的顏色。3D 沒有 2D 那種整體 opacity，只能讓顏色自己帶 alpha。 */
 const DIM_NODE = 'rgba(91,107,140,0.12)';
 const DIM_LINK = 'rgba(70,112,92,0.05)';
+
+// 線上那個數字的樣子。**只有 3D 用這一組**，2D 的邊標籤仍歸 style.ts 管。
+//
+// 一個中性近白，不跟型別綁：數字講的是「量」，那個維度與型別正交——型別已經
+// 由線本身的顏色講完了，數字再依型別分色只是讓畫面多兩種色相。
+const LABEL_COLOR = '#e6ecf5';
+//: 字高。節點標籤是 3，數字比它再大一點才在一堆線裡看得見。
+const LABEL_HEIGHT = 3.5;
+//: 底色。3D 沒有 2D 那種文字底框，數字疊到別的線上就糊了。
+const LABEL_BACKGROUND = 'rgba(10,13,20,0.82)';
 
 export function Graph3D({ graph, spacing }: Props) {
   const box = useRef<HTMLDivElement>(null);
@@ -135,6 +157,27 @@ export function Graph3D({ graph, spacing }: Props) {
         .linkOpacity(0.55)
         .linkDirectionalArrowLength((link) => (isImport(link) ? 3 : 0))
         .linkDirectionalArrowRelPos(1)
+        // 線上標「這條線代表幾筆」。門檻與 2D 同一條：count > 1 才標，否則每
+        // 條線都掛一個 1。extend 是為了保留原本那條線，精靈只是加在它旁邊。
+        .linkThreeObjectExtend(true)
+        .linkThreeObject((link: object) => {
+          const count = countOf(link);
+          if (count <= 1) return null;
+          const text = new SpriteText(String(count));
+          text.color = LABEL_COLOR;
+          text.textHeight = LABEL_HEIGHT;
+          text.backgroundColor = LABEL_BACKGROUND;
+          text.padding = 0.6;
+          return text;
+        })
+        // 精靈自己不會跟著線跑，每次更新都要放回兩端的中點。
+        .linkPositionUpdate((sprite: object | null, ends: LinkEnds) => {
+          if (!sprite) return;
+          const placed = sprite as { position: { x: number; y: number; z: number } };
+          placed.position.x = ends.start.x + (ends.end.x - ends.start.x) / 2;
+          placed.position.y = ends.start.y + (ends.end.y - ends.start.y) / 2;
+          placed.position.z = ends.start.z + (ends.end.z - ends.start.z) / 2;
+        })
         // hover 與點擊都吃：hover 是 2D 的行為，點擊是滑不準時的備案
         .onNodeHover((node) => light(node as { id: string } | null))
         .onNodeClick((node) => light(node as { id: string } | null))
@@ -211,6 +254,7 @@ export function Graph3D({ graph, spacing }: Props) {
         source: edge.data.source,
         target: edge.data.target,
         type: edge.data.type,
+        count: edge.data.count,
       })),
     });
     setLoaded(`節點 ${elements.nodes.length} 邊 ${elements.edges.length}`);
