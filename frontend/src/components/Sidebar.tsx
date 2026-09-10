@@ -189,6 +189,8 @@ export function Sidebar({
         <Legend color={palette.repo} shape="hexagon" label="repo" />
         <Legend color={palette.directory} shape="square" label="directory" />
         <Legend color={palette.file} shape="circle" label="file" />
+        <Legend color={palette.class} shape="pentagon" label="class" />
+        <Legend color={palette.function} shape="triangle" label="function" />
         <Legend color={palette.external} shape="diamond" label="external package" />
 
         <div
@@ -203,8 +205,14 @@ export function Sidebar({
         >
           <LineLegend color={palette.edge} thickness={2} label="contains" note="骨架" />
           <LineLegend
+            color={palette.edgeDefines}
+            thickness={2}
+            label="defines"
+            note="宣告"
+          />
+          <LineLegend
             color={palette.edgeImports}
-            thickness={3.5}
+            thickness={2}
             label="imports"
             note="依賴"
           />
@@ -322,7 +330,7 @@ function Legend({
   label,
 }: {
   color: string;
-  shape: 'hexagon' | 'square' | 'circle' | 'diamond';
+  shape: 'hexagon' | 'square' | 'circle' | 'diamond' | 'pentagon' | 'triangle';
   label: string;
 }) {
   return (
@@ -350,7 +358,8 @@ function Legend({
   );
 }
 
-// 兩種邊在畫面上長什麼樣，圖例就畫成什麼樣——用文字描述「細暗線」很難對得起來。
+// 邊在畫面上長什麼樣，圖例就畫成什麼樣——用文字描述「細暗線」很難對得起來。
+// 所以三條線同寬：畫布上粗細只表達「代表幾筆」，圖例不該自己用粗細講主次。
 function LineLegend({
   color,
   thickness,
@@ -393,6 +402,8 @@ function Stat({ label, value }: { label: string; value: number }) {
 const CLIP: Record<string, string | undefined> = {
   hexagon: 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)',
   diamond: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)',
+  pentagon: 'polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%)',
+  triangle: 'polygon(50% 0%, 100% 100%, 0% 100%)',
 };
 
 function Row({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
