@@ -67,12 +67,14 @@
 | `NodeType` | 階段 |
 |---|---|
 | `repo` `directory` `file` `external_package` | 第一階段實際產出 |
-| `module` `class` `function` | schema 已定義、尚未填充 |
+| `class` `function` | **第二階段實際產出**（plan 5.1） |
+| `module` | schema 已定義、尚未填充 |
 
 | `EdgeType` | 階段 |
 |---|---|
 | `contains` `imports` | 第一階段實際產出 |
-| `defines` `calls` `inherits` | schema 已定義、尚未填充 |
+| `defines` | **第二階段實際產出**（plan 5.1） |
+| `calls` `inherits` | schema 已定義、尚未填充 |
 
 用 enum 而非自由字串，是因為 CLAUDE.md › 圖模型把型別列成**封閉清單**。理由與代價見 §8.1。
 
@@ -206,4 +208,5 @@ CLAUDE.md › 圖模型把型別列成封閉清單。代價是新增一種型別
 |---|---|
 | `module` 節點的 `owner_file()` | 路徑基底可能是檔案也可能是目錄。目前一律回 `None`，第二階段填 `module` 節點時再定 |
 | `isolated_nodes` | 欄位在，定義未定，目前恆空。「孤立」是指沒有任何邊，還是只看 `imports`？見 `graph.md` |
-| `properties` 的鍵 | 各階段各自決定放什麼，尚無約定。真的散掉再回頭收斂 |
+| `properties` 的鍵 | 各階段各自決定放什麼，尚無約定。真的散掉再回頭收斂。目前用掉的：`parse_error`（pipeline）、`module` / `name` / `line` / `ambiguous`（resolve）、`weight` / `internal_imports` / `packages` / `sources`（收合，見 `graph.md` §4）、`line` / `redefined_at`（宣告，見 `graph.md` §3.8） |
+| 開放袋子擋不住漂移 | 往 `properties` 加鍵不會改變 OpenAPI，所以「拿 `/openapi.json` 對手抄版」檢查不到它。裡面放什麼只能靠這份文件與前端的 `transform.ts` 集中管 |

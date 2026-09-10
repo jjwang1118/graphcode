@@ -15,6 +15,18 @@ export interface CytoscapeNode {
   };
 }
 
+/** 聚合掉的一筆筆 import，依「來源檔 → 目標檔 → 行號」分組。 */
+export interface ImportDetail {
+  /** 來源檔案的 id */
+  from: string;
+  /** 目標檔案或外部套件的 id */
+  to: string;
+  /** 寫在原始碼第幾行。同一個 `from x import a, b` 的名字共用一行 */
+  line: number | null;
+  /** 這一對之間 import 了哪些名字 */
+  names: string[];
+}
+
 export interface CytoscapeEdge {
   data: {
     id: string;
@@ -23,8 +35,8 @@ export interface CytoscapeEdge {
     type: EdgeType;
     /** 聚合了幾筆。1 代表沒有重疊。 */
     count: number;
-    /** 每一筆的名字與行號，給 hover 展開用。 */
-    detail: string;
+    /** 聚合掉的細節，給訊息框用。 */
+    details: ImportDetail[];
   };
 }
 
@@ -67,9 +79,11 @@ function aggregate(edges: Edge[]): CytoscapeEdge[] {
     const existing = merged.get(id);
     if (existing) {
       existing.data.count += weightOf(edge);
-      existing.data.detail += `\n${describe(edge)}`;
+      addDetails(existing.data.details, edge);
       continue;
     }
+    const details: ImportDetail[] = [];
+    addDetails(details, edge);
     merged.set(id, {
       data: {
         id,
@@ -77,7 +91,7 @@ function aggregate(edges: Edge[]): CytoscapeEdge[] {
         target: edge.target,
         type: edge.type,
         count: weightOf(edge),
-        detail: describe(edge),
+        details,
       },
     });
   }
@@ -91,9 +105,69 @@ function weightOf(edge: Edge): number {
   return typeof weight === 'number' ? weight : 1;
 }
 
-function describe(edge: Edge): string {
-  const name = edge.properties.name;
-  const line = edge.properties.line;
-  const parts = [typeof name === 'string' ? name : null, typeof line === 'number' ? `行 ${line}` : null];
-  return parts.filter(Boolean).join(' ');
+// 細節有兩種來源，結果是同一個型別：
+//   收合層 —— 後端 `views.py` 把收掉的原始邊放在 `properties.sources`
+//   檔案層 —— 沒有 sources，這條邊自己就是一筆
+//
+// **這是唯一認識後端形狀的地方。** 之後改成打 API 去全量圖查（plan 4.4），只
+// 要換 `rawSources()`，分組與顯示都不用動。
+function addDetails(into: ImportDetail[], edge: Edge): void {
+  // 只有 imports 有細節可說。`contains` 的「細節」換個層級就看得到，後端也不
+  // 送 sources，硬湊只會讓框裡出現一堆沒有意義的名字。
+  if (edge.type !== 'imports') return;
+
+  for (const one of rawSources(edge)) {
+    // 行號進分組的 key：同一對檔案在兩行各 import 一次，就該是兩組
+    const found = into.find(
+      (detail) =>
+        detail.from === one.from && detail.to === one.to && detail.line === one.line,
+    );
+    if (found) found.names.push(one.name);
+    else into.push({ from: one.from, to: one.to, line: one.line, names: [one.name] });
+  }
+}
+
+interface RawSource {
+  from: string;
+  to: string;
+  line: number | null;
+  name: string;
+}
+
+function rawSources(edge: Edge): RawSource[] {
+  const sources = edge.properties.sources;
+  if (!Array.isArray(sources)) {
+    return [
+      {
+        from: edge.source,
+        to: edge.target,
+        line: lineOf(edge.properties),
+        name: nameOf(edge.properties),
+      },
+    ];
+  }
+  return sources.filter(isRecord).map((one) => ({
+    from: String(one.from),
+    to: String(one.to),
+    line: lineOf(one),
+    name: nameOf(one),
+  }));
+}
+
+// `from app.models import Edge` 給 `Edge`；`import os` 沒有 name，退回模組字串
+// ——否則那種 import 在框裡會是一片空白。
+function nameOf(properties: Record<string, unknown>): string {
+  const name = properties.name;
+  if (typeof name === 'string') return name;
+  const module = properties.module;
+  return typeof module === 'string' ? module : '?';
+}
+
+function lineOf(properties: Record<string, unknown>): number | null {
+  const line = properties.line;
+  return typeof line === 'number' ? line : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }

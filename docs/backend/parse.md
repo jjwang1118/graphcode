@@ -44,9 +44,20 @@ class Parser(Protocol):
 | | `name` | `str \| None` | 從 `module` 裡取出的名字。整包 `import x` 為 `None` |
 | | `alias` | `str \| None` | `as` 後面的別名 |
 | | `line` | `int` | 在原始碼的第幾行 |
+| `Defines` | `kind` | `"class" \| "function"` | 哪一種宣告。`async def` 也算 function |
+| | `name` | `str` | 宣告的名字，如 `run`（裸名） |
+| | `parent` | `str \| None` | 包住它的宣告的完整路徑，如 `Runner`。頂層為 `None` |
+| | `line` | `int` | `def` / `class` 那一行，不是裝飾器那一行 |
+| | `overload` | `bool` | 只是 `@overload` 的簽章，不是實作。預設 `False` |
 | `ParseResult` | `facts` | `tuple[Fact, ...]` | 預設 `()` |
 | | `error` | `str \| None` | 預設 `None` |
-| `Fact` | — | `= Import` | union 別名。之後：`Import \| Defines \| Calls \| Inherits` |
+| `Fact` | — | `= Import \| Defines` | union 別名。之後：再加 `Calls` `Inherits` |
+
+`Defines` 的 `name` 是裸名、`parent` 是完整路徑：節點 id 要的 `Runner.run` 由
+兩者湊得出來，而裸名正是之後解析呼叫時要查的 key，兩個欄位都有人用。
+
+`kind` 用字串而不是 `NodeType`：parse 一旦 import `app.models`，「Fact 不是節
+點」那條界線就破了。換型別的對照表在 `app/graph/declarations.py`。
 
 全部為 `@dataclass(frozen=True)`，**不是 pydantic**。理由見 §8.4。
 
@@ -81,7 +92,7 @@ registry 裝的是**語言知識**，對每個專案都一樣；**專案知識**
 | # | 規則 |
 |---|---|
 | R4 | 用標準庫 `ast.parse()`。定案理由見 §8.1。 |
-| R5 | 走**整棵樹**（`ast.walk`），不只看頂層——`if TYPE_CHECKING:` 內與函式內的 import 都算。 |
+| R5 | 走**整棵樹**，不只看頂層——`if TYPE_CHECKING:` 內與函式內的 import 都算。走訪方式見 R14。 |
 | R6 | `ast.Import` 的每個 alias 各產生一筆：`module=alias.name`、`level=0`、`name=None`、`alias=alias.asname`。 |
 | R7 | `ast.ImportFrom` 的每個 alias 各產生一筆：`module=node.module`、`level=node.level`、`name=alias.name`、`alias=alias.asname`。 |
 | R8 | `line` 取該 import 敘述的 `lineno`，同一句跨行時是**起始行**。 |
@@ -98,7 +109,24 @@ registry 裝的是**語言知識**，對每個專案都一樣；**專案知識**
 
 這讓 resolve 的第一步永遠是同一件事：拿 `module` ＋ `level` 去找檔案。
 
-### 3.3 失敗處理
+### 3.3 抽宣告 · `PythonParser.parse`
+
+| # | 規則 |
+|---|---|
+| R14 | 走訪用**帶父節點堆疊的遞迴**（`ast.iter_child_nodes`），不用 `ast.walk`——後者是廣度優先，拿不到「誰包住誰」。走整棵樹這件事不變。 |
+| R15 | `ast.ClassDef` 給 `kind="class"`；`ast.FunctionDef` 與 `ast.AsyncFunctionDef` 給 `kind="function"`。 |
+| R16 | `parent` 是包住它的**宣告**的完整路徑。`if` / `try` / `with` 不是宣告，裡面的宣告仍屬外面那一層，不會多包一層。 |
+| R17 | `line` 取宣告本身的 `lineno`。裝飾器有自己的行號，不往回扣——跳過去要看到 `def`，不是一個裝飾器。 |
+| R18 | 裝飾器最後一段是 `overload` 的（`@overload`、`@typing.overload`）標成 `overload=True`，但**照樣回報**。要留哪一筆是 declarations 的判斷，parse 不做合併。 |
+| R19 | 宣告與 import 一起依 `line` 排序（R9），所以輸出照原始碼順序交錯。 |
+
+`def foo():` 產生宣告，`foo()` 不產生——後者是呼叫，屬於之後的 `Calls`。
+
+**巢狀沒有層數上限。** CLAUDE.md 的 `defines` 是「外層宣告 → 內層宣告」，所以
+閉包（`function → function`）與巢狀類別（`class → class`）都有父節點，不限於
+`file → class → function`。
+
+### 3.4 失敗處理
 
 | # | 規則 |
 |---|---|
@@ -120,6 +148,10 @@ parse    →  Fact   「這個檔案第 11 行寫了 from app.graph import build
                     （還不知道 app.graph 是誰）
 resolve  →  Edge   「file:app/api/analyze.py --imports--> file:app/graph/__init__.py」
 ```
+
+**只有 `Import` 走這條路。** `Defines` 不必問任何人——它自己就是節點，由
+`app/graph/declarations.py` 直接接成節點與 `defines` 邊。分流寫在 `pipeline.py`
+（見 §9）。
 
 ### 4.2 失敗的痕跡
 
@@ -179,6 +211,7 @@ resolve  →  Edge   「file:app/api/analyze.py --imports--> file:app/graph/__in
 | I3 | parser 不讀檔案系統、不做網路存取、不改任何外部狀態。 |
 | I4 | Fact 是 frozen，resolve 不能偷改 parse 給的東西。 |
 | I5 | 註解與字串裡的假 import **不會**被抽出來（R4 的直接後果）。 |
+| I6 | 一筆 `Defines` 的 `parent` 若不是 `None`，那個宣告**必定更早出現在同一份結果裡**。`declarations` 靠它查父節點是 class 還是 function。 |
 
 ---
 
@@ -186,7 +219,7 @@ resolve  →  Edge   「file:app/api/analyze.py --imports--> file:app/graph/__in
 
 | 測試檔 | 筆數 | 涵蓋 |
 |---|---|---|
-| `tests/test_parsers_python.py` | 12 | R4–R13、I1、I5、四種 `module`/`name` 組合 |
+| `tests/test_parsers_python.py` | 21 | R4–R19、I1、I5、四種 `module`/`name` 組合、巢狀與 `@overload` |
 
 實測（同一段刁鑽的程式碼，全對）：
 
@@ -311,6 +344,6 @@ resolve 需要的資訊，字串裡塞不下：
 
 | 主題 | 未定的事 | 重新評估的時機 |
 |---|---|---|
-| Fact 宣告邊 | Fact 要不要自己說明它產生什麼節點／邊，好讓 build 變成不認識具體型別的通用迴圈。現在 build 仍需一條 `Fact → 節點/邊` 的對應規則，是 CLAUDE.md 承認的唯一例外 | **第三種 Fact 出現時**。階段 2 只有 `Import` 一種，用一個實例設計通用機制幾乎必定設計錯。而且就算 build 通用化，resolve 仍要分流（`Import` 是「模組名 → 檔案」、`Calls` 是「函式名 → 函式」，兩套演算法），最多只清掉一層 |
+| Fact 宣告邊 | Fact 要不要自己說明它產生什麼節點／邊，好讓 build 變成不認識具體型別的通用迴圈。現在的分流是 `pipeline.py` 裡的兩行 `isinstance`：`Defines` 交給 `declarations.to_nodes()`、`Import` 交給 `resolve.to_edges()` | **已經到了**。5.1 讓 Fact 從一種變成兩種，plan 5.2 就是這件事。注意就算 build 通用化，resolve 仍要分流（`Import` 是「模組名 → 檔案」、`Calls` 是「函式名 → 函式」，兩套演算法），最多只清掉一層 |
 | 語法上限的記錄 | 是否要在 `meta` 記下後端的 Python 版本，讓「為什麼這些檔案失敗」有跡可循 | 真的遇到版本落差時 |
 | 動態 import | 目前完全看不到。要不要至少標記「這個檔案有動態 import」尚未決定 | 遇到大量使用的專案時 |

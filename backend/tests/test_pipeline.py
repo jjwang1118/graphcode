@@ -98,3 +98,43 @@ def test_the_view_keeps_only_the_edges_it_was_asked_for(project: Path) -> None:
     assert {edge.type for edge in view.edges} == {EdgeType.IMPORTS}
     # 篩邊不會丟掉節點
     assert view.meta.node_count == analyze(project).document().meta.node_count
+
+
+def test_declarations_become_nodes_hanging_off_their_file(project: Path) -> None:
+    (project / "pkg" / "runner.py").write_text(
+        "class Runner:\n    def run(self): ...\n\ndef helper(): ...\n"
+    )
+
+    document = analyze(project).document()
+    declared = {
+        node.id
+        for node in document.nodes
+        if node.type in (NodeType.CLASS, NodeType.FUNCTION)
+    }
+
+    assert declared == {
+        "class:pkg/runner.py::Runner",
+        "function:pkg/runner.py::Runner.run",
+        "function:pkg/runner.py::helper",
+    }
+    assert set(edges_of(project, EdgeType.DEFINES)) == {
+        ("file:pkg/runner.py", "class:pkg/runner.py::Runner"),
+        ("class:pkg/runner.py::Runner", "function:pkg/runner.py::Runner.run"),
+        ("file:pkg/runner.py", "function:pkg/runner.py::helper"),
+    }
+
+
+def test_overloaded_declarations_do_not_break_the_build(project: Path) -> None:
+    # 同名的宣告會產生同一個 id，而 build() 對重複的 id 直接丟 BuildError。
+    # 實測 pydantic 有 4.5% 的宣告會撞，所以這條是「能不能分析真實專案」。
+    (project / "pkg" / "over.py").write_text(
+        "from typing import overload\n\n"
+        "@overload\ndef f(x: int) -> int: ...\n"
+        "@overload\ndef f(x: str) -> str: ...\n"
+        "def f(x): return x\n"
+    )
+
+    document = analyze(project).document()
+    node = next(n for n in document.nodes if n.id == "function:pkg/over.py::f")
+
+    assert node.properties == {"line": 7, "redefined_at": [4, 6]}

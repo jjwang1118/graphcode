@@ -13,10 +13,19 @@ export const palette = {
   directory: '#7de2ff',
   file: '#5b6b8c',
   external: '#f0883e',
+  //: 檔案裡面的宣告。class 少（本專案 25 個）可以醒目，function 多（213 個）
+  //: 就得低調——暖色系在一片冷色裡分得出來，又不會搶掉目錄與依賴的視線
+  class: '#d97fb8',
+  function: '#9c8f7a',
   //: `contains` 是骨架，`imports` 是依賴。除了亮度，再用色相分開——原本兩者都
   //: 是藍色系，只差明暗，實際看還是分不太出來
   edge: '#46705c',
   edgeImports: '#7aa2e3',
+  //: `defines` 跟 `contains` 一樣是層級骨架，同粗細、只換色相
+  edgeDefines: '#7a6a8f',
+  //: 浮在圖上的面板（細節框）用的亮邊。中性灰藍，不跟任何型別的顏色重疊——
+  //: 框不是圖的一部分，配色也不該被讀成「某種節點」
+  borderBright: '#8fa3c4',
   danger: '#ff6b6b',
   accent: '#a78bfa',
 };
@@ -83,6 +92,27 @@ export const graphStyle = [
     },
   },
   {
+    selector: 'node[type = "class"]',
+    style: {
+      shape: 'pentagon' as const,
+      'background-color': palette.class,
+      width: 13,
+      height: 13,
+      'font-size': 14,
+    },
+  },
+  {
+    // 比 file 小：它住在檔案裡面，而且數量最多，畫太大整張圖就只剩函式
+    selector: 'node[type = "function"]',
+    style: {
+      shape: 'triangle' as const,
+      'background-color': palette.function,
+      width: 9,
+      height: 9,
+      'font-size': 13,
+    },
+  },
+  {
     // 解析失敗只改邊框——形狀與顏色仍歸型別管，否則「型別決定形狀」那條規則就破了
     selector: 'node[parseError]',
     style: {
@@ -113,6 +143,14 @@ export const graphStyle = [
       'line-color': palette.edgeImports,
       'target-arrow-color': palette.edgeImports,
       'arrow-scale': 1.1,
+    },
+  },
+  {
+    // 宣告的包含關係。跟 contains 同為骨架，所以同粗細、同箭頭大小，只換色相
+    selector: 'edge[type = "defines"]',
+    style: {
+      'line-color': palette.edgeDefines,
+      'target-arrow-color': palette.edgeDefines,
     },
   },
   {
@@ -188,6 +226,14 @@ export const minimapStyle = [
   {
     selector: 'node[type = "external_package"]',
     style: { 'background-color': palette.external, width: 7, height: 7 },
+  },
+  {
+    selector: 'node[type = "class"]',
+    style: { 'background-color': palette.class, width: 5, height: 5 },
+  },
+  {
+    selector: 'node[type = "function"]',
+    style: { 'background-color': palette.function, width: 4, height: 4 },
   },
   {
     selector: 'edge',

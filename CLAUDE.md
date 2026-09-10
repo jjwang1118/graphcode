@@ -43,7 +43,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `module` | 節點 | 可被 import 的單位。多數情況與 `file` 一對一，但 Python 的 `__init__.py` 會讓一個 `directory` 也成為 module — 兩者不等價，所以分開 |
 | `class` | 節點 | 類別宣告 |
 | `function` | 節點 | 函式或方法宣告。`def foo():` 產生節點，`foo()` 不產生 |
-| `defines` | 邊 | 程式碼層的宣告包含：`file → class`、`class → function`。與 `contains` 分開是為了保留「這是宣告」的語意，代價是**沿層級展開時兩種邊都要吃** |
+| `defines` | 邊 | 程式碼層的宣告包含：**外層宣告 → 內層宣告**，`file` 算最外層。`file → class`、`file → function`（頂層函式）、`class → function`（方法）都是這條規則的實例；巢狀宣告則產生 `function → function`、`class → class`。與 `contains` 分開是為了保留「這是宣告」的語意，代價是**沿層級展開時兩種邊都要吃** |
 | `calls` | 邊 | 函式呼叫，`function → function`。被呼叫 n 次就是 n 條邊，收合到上層時聚合成一條帶權重的邊 |
 | `inherits` | 邊 | 類別繼承或介面實作，`class → class` |
 
@@ -132,7 +132,7 @@ class Runner:
 ```bash
 cd backend
 conda activate codegraph
-CODEGRAPH_ALLOWED_ROOTS=/home/jjwang1118/project uvicorn app.main:app --port 8000
+CODEGRAPH_ALLOWED_ROOTS=/home/jjwang1118/project uvicorn app.main:app --port 8000 --reload
 ```
 
 **前端**（`:5173`）：

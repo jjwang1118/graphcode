@@ -55,7 +55,7 @@ describe('toElements', () => {
         target: 'dir:src',
         type: 'contains',
         count: 1,
-        detail: '',
+        details: [],
       },
     });
   });
@@ -88,7 +88,78 @@ describe('toElements', () => {
     expect(edges).toHaveLength(1);
     expect(edges[0].data.count).toBe(2);
     // 細節沒丟，只是收進 data 裡
-    expect(edges[0].data.detail).toBe('Edge 行 3\nNode 行 3');
+    expect(edges[0].data.details).toEqual([
+      { from: 'file:a.py', to: 'file:b.py', line: 3, names: ['Edge', 'Node'] },
+    ]);
+  });
+
+  it('unfolds the sources a collapsed edge carries, grouped by file pair', () => {
+    const collapsed: GraphDocument = {
+      ...empty,
+      nodes: [
+        { id: 'dir:a', type: 'directory', label: 'a', properties: {} },
+        { id: 'dir:b', type: 'directory', label: 'b', properties: {} },
+      ],
+      edges: [
+        {
+          source: 'dir:a',
+          target: 'dir:b',
+          type: 'imports',
+          properties: {
+            weight: 3,
+            sources: [
+              { from: 'file:a/one.py', to: 'file:b/x.py', name: 'Edge', line: 1 },
+              { from: 'file:a/one.py', to: 'file:b/x.py', name: 'Node', line: 1 },
+              { from: 'file:a/two.py', to: 'file:b/x.py', module: 'b.x', line: 4 },
+            ],
+          },
+        },
+      ],
+    };
+
+    const edges = toElements(collapsed).edges;
+
+    expect(edges[0].data.count).toBe(3);
+    expect(edges[0].data.details).toEqual([
+      { from: 'file:a/one.py', to: 'file:b/x.py', line: 1, names: ['Edge', 'Node'] },
+      // 沒有 name 的 import 退回模組字串，不會變成空白
+      { from: 'file:a/two.py', to: 'file:b/x.py', line: 4, names: ['b.x'] },
+    ]);
+  });
+
+  it('splits one file pair into two groups when it imports on two lines', () => {
+    const twice: GraphDocument = {
+      ...empty,
+      nodes: [
+        { id: 'dir:a', type: 'directory', label: 'a', properties: {} },
+        { id: 'dir:b', type: 'directory', label: 'b', properties: {} },
+      ],
+      edges: [
+        {
+          source: 'dir:a',
+          target: 'dir:b',
+          type: 'imports',
+          properties: {
+            weight: 2,
+            sources: [
+              { from: 'file:a/one.py', to: 'file:b/x.py', name: 'Edge', line: 1 },
+              { from: 'file:a/one.py', to: 'file:b/x.py', name: 'Node', line: 9 },
+            ],
+          },
+        },
+      ],
+    };
+
+    expect(toElements(twice).edges[0].data.details).toEqual([
+      { from: 'file:a/one.py', to: 'file:b/x.py', line: 1, names: ['Edge'] },
+      { from: 'file:a/one.py', to: 'file:b/x.py', line: 9, names: ['Node'] },
+    ]);
+  });
+
+  it('gives contains edges no details', () => {
+    expect(toElements(tree).edges.every((edge) => edge.data.details.length === 0)).toBe(
+      true,
+    );
   });
 
   it('does not merge edges of different types', () => {

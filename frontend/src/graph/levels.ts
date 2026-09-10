@@ -29,7 +29,9 @@ export const levels: LevelOption[] = [
   { value: 3, label: '第 3 層目錄' },
   { value: 4, label: '第 4 層目錄' },
   { value: 5, label: '第 5 層目錄' },
-  { value: null, label: '檔案（最細）' },
+  // 層級樹吃 contains ＋ defines，所以不收合會看到 class 與 function，不再只
+  // 到檔案為止。
+  { value: null, label: '不收合（最細）' },
 ];
 
 export const externalLabels: Record<ExternalMode, string> = {

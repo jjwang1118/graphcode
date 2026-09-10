@@ -32,7 +32,7 @@ HTTP 層。**只做 HTTP 的事。**
 |---|---|---|---|
 | `path` | `str` | 必填 | 本機路徑，必須落在 allowlist 內（見 `ingest.md`） |
 | `edge_types` | `list[EdgeType] \| None` | `None` | 省略＝整張圖；給了就只保留這些型別的邊 |
-| `level` | `int \| None` | `None` | 收合到 `contains` 樹的第幾層（0＝repo）；省略＝不收合 |
+| `level` | `int \| None` | `None` | 收合到**層級樹**（`contains` ＋ `defines`）的第幾層（0＝repo）；省略＝不收合。函式比它所在的檔案深一層 |
 | `externals` | `ExternalMode` | `"full"` | `full` / `grouped` / `hidden`，見 `graph.md` §3.5 |
 
 ```json

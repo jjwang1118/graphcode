@@ -13,7 +13,7 @@ docs/backend/parse.md。
 """
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 
 @dataclass(frozen=True)
@@ -48,8 +48,40 @@ class Import:
     line: int
 
 
+@dataclass(frozen=True)
+class Defines:
+    """一個宣告。``def foo():`` 產生，``foo()`` 不產生。
+
+    `name` 是裸名（``run``）、`parent` 是包住它的宣告的完整路徑（``Runner``）：
+    節點 id 要的 ``Runner.run`` 湊得出來，而裸名正是之後解析呼叫時要查的 key，
+    兩個欄位都有人用。
+
+    class 與 function 合用一個 dataclass、以 `kind` 分辨，跟 parse.md §8.5 說的
+    「型別當真的型別」不衝突——兩者欄位完全一樣，拆開不會少任何 Optional。那條
+    規矩管的是 Import / Defines / Calls 之間的分辨，它們欄位天差地遠。
+
+    `kind` 用字串而不是 `NodeType`：parse 一旦 import `app.models`，「Fact 不是
+    節點」那條界線就破了。
+    """
+
+    #: "class" 或 "function"（``async def`` 也算 function）
+    kind: Literal["class", "function"]
+    #: 宣告的名字，如 ``run``
+    name: str
+    #: 包住它的宣告的完整路徑，如 ``Runner``。頂層宣告為 None
+    parent: str | None
+    #: ``def`` / ``class`` 那一行，不是裝飾器那一行
+    line: int
+    #: 只是 ``@overload`` 的簽章，不是實作。
+    #:
+    #: 同一個作用域內同名的宣告只能有一個節點，這個欄位決定留哪一筆——實測
+    #: pydantic 有 84 筆 overload，而實作永遠在最後一筆。它活在 parse 到
+    #: declarations 之間，不會進節點的 properties。
+    overload: bool = False
+
+
 #: parse 產出的事實。之後：Import | Defines | Calls | Inherits
-Fact = Import
+Fact = Import | Defines
 
 
 @dataclass(frozen=True)

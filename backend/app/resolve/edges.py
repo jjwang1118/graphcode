@@ -10,13 +10,19 @@ from typing import Any, Protocol
 
 from app.models import Edge, EdgeType, Node, NodeType
 from app.models.ids import PREFIX
-from app.parsers import Fact
+from app.parsers import Import
 from app.resolve.index import ModuleIndex, Resolution
 
 
 class Resolver(Protocol):
+    """吃的是 `Import`，不是所有 Fact。
+
+    宣告不經過 resolve——它自己就是節點，由 `app/graph/declarations.py` 直接接
+    成圖。分流在 `pipeline.py`。
+    """
+
     def target(
-        self, fact: Fact, importer_id: str, index: ModuleIndex
+        self, fact: Import, importer_id: str, index: ModuleIndex
     ) -> Resolution | None: ...
 
 
@@ -37,7 +43,7 @@ class ResolveResult:
 
 
 def to_edges(
-    facts: Mapping[str, Sequence[Fact]],
+    facts: Mapping[str, Sequence[Import]],
     index: ModuleIndex,
     resolver: Resolver,
 ) -> ResolveResult:
@@ -70,7 +76,7 @@ def to_edges(
     )
 
 
-def _edge(importer_id: str, fact: Fact, found: Resolution) -> Edge:
+def _edge(importer_id: str, fact: Import, found: Resolution) -> Edge:
     properties: dict[str, Any] = {"module": _written(fact), "line": fact.line}
     if fact.name is not None:
         properties["name"] = fact.name
@@ -85,7 +91,7 @@ def _edge(importer_id: str, fact: Fact, found: Resolution) -> Edge:
     )
 
 
-def _written(fact: Fact) -> str:
+def _written(fact: Import) -> str:
     """原始碼裡寫的那個模組字串，`from ..pkg import x` 就是 `..pkg`。"""
     return "." * fact.level + (fact.module or "")
 

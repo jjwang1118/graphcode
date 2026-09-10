@@ -2,7 +2,7 @@
 
 對應程式碼 `backend/app/graph/`。職責的位置定義在 CLAUDE.md › 架構 › build；序列化形狀見 `graph_schema.md`。
 
-這一層有四個模組：`build.py`（組與驗）、`query.py`（查詢層介面）、`views.py`（篩邊與收合）、`store.py`（存檔讀回）。
+這一層有五個模組：`build.py`（組與驗）、`query.py`（查詢層介面）、`views.py`（篩邊與收合）、`store.py`（存檔讀回）、`declarations.py`（宣告事實 → 節點與邊）。
 
 ---
 
@@ -61,6 +61,24 @@
 | `save` | `(graph: CodeGraph, path: Path) -> None` |
 | `load` | `(path: Path) -> CodeGraph` |
 
+### 2.5 宣告 · `declarations.py`
+
+把 parse 的 `Defines` 事實變成 `class` / `function` 節點與 `defines` 邊。
+
+| 名稱 | 簽章 |
+|---|---|
+| `to_nodes` | `(facts: Mapping[str, Sequence[Fact]]) -> DeclareResult` |
+| `DeclareResult` | frozen dataclass：`nodes: tuple[Node, ...]`、`edges: tuple[Edge, ...]` |
+
+`facts` 以**來源檔案的節點 id** 為 key——fact 自己不知道它從哪個檔案來。
+
+**不查任何索引**，跟 resolve 是兩回事：`Import` 是一個名字、要比對全域索引才知
+道指向誰；宣告自己就是節點。所以這裡是純對應層，餵一份假 fact 就測得動。
+
+放在 `app/graph/` 而不是 parse 或 resolve：產出就是 build 的輸入，而 CLAUDE.md
+把「`Fact → 節點/邊` 的對應規則」這條例外掛在 build 名下。**這是暫時的家**，
+plan 5.2 要讓它變成不認識具體型別的通用迴圈。
+
 ---
 
 ## 3. 行為
@@ -106,12 +124,14 @@ Q3 的理由：數量不重算的話，前端拿到的數字跟畫面上的東�
 
 ### 3.4 收合層級 · `collapse`
 
-`level` 是 `contains` 樹上的深度：**0 是 repo，1 是它的直接子項**，依此類推。
+`level` 是**層級樹**上的深度：**0 是 repo，1 是它的直接子項**，依此類推。層級
+樹由 `contains` **與** `defines` 兩種邊構成——函式掛在檔案底下，所以比它所在的
+檔案深一層。
 
 | # | 規則 |
 |---|---|
 | C1 | `level is None` 且 `externals == "full"` 時原樣回傳，不做任何事。 |
-| C2 | 從 `contains` 邊建「子 → 父」對照表，每個節點往上爬到頂，鏈長就是它的深度。 |
+| C2 | 從 `contains` **與** `defines` 邊建「子 → 父」對照表，每個節點往上爬到頂，鏈長就是它的深度。**兩種邊都要吃**——只認 `contains` 的話 class 與 function 上面沒有父節點，會被當成深度 0 的孤兒，每個層級都收不掉。 |
 | C3 | 深度 `<= level` 的節點**保留自己**；否則由第 `level` 層的祖先代表它。 |
 | C4 | 只有「代表自己」的節點留在輸出裡，被收掉的節點消失。 |
 | C5 | 每條邊的兩端都換成代表它的節點。 |
@@ -120,6 +140,7 @@ Q3 的理由：數量不重算的話，前端拿到的數字跟畫面上的東�
 | C8 | 被 C6 丟掉的 `imports` 自環不是真的丟掉：計數記在該節點的 `properties["internal_imports"]`。 |
 | C9 | `meta` 只更新 `node_count` / `edge_count`，其餘沿用（同 Q3）。 |
 | C10 | 輸出的節點順序沿用輸入的順序；`grouped` 產生的那個節點排在最後。 |
+| C11 | 被 C7 合併掉的 `imports` 原始邊記在 `properties["sources"]`，一筆一項。層級邊（`contains`、`defines`）**不記**——它們被收掉的細節換一個層級就看得到，揹著只是讓 JSON 變大。 |
 
 C3 的「保留自己」是關鍵：根目錄下的 `README.md` 在 `level=2` 時上面沒有兩層目錄，**維持原樣**，不會憑空消失。
 
@@ -152,19 +173,51 @@ CodeGraph → save(path) → JSON 檔 → load(path) → CodeGraph
 | S4 | `load()` 把三個計數包成 `Diagnostics` 傳回去，否則讀一次就歸零。 |
 | S5 | `cycles` 等其餘 `meta` 讀回時**重算**——它們是衍生資訊，重算才能保證與節點邊的內容一致。 |
 
+### 3.8 宣告 → 節點與邊 · `to_nodes`
+
+| # | 規則 |
+|---|---|
+| D1 | 每一筆 `Defines` 產生一個節點，id 是 `make_id(kind, 檔案路徑, member=完整路徑)`，如 `function:src/app.py::Runner.run`。 |
+| D2 | 每個節點一條 `defines` 邊：頂層宣告的來源是該 `file` 節點，其餘是包住它的那個宣告。 |
+| D3 | 節點的 `label` 是**裸名**（`run`），完整路徑在 id 裡；`properties["line"]` 是宣告那一行。 |
+| D4 | 同一個 id 只留一個節點，挑**第一筆 `overload=False`** 的；整組都是 `@overload` 簽章就挑第一筆。 |
+| D5 | 被 D4 合併掉的那幾筆的行號記在 `properties["redefined_at"]`，資訊不丟。 |
+| D6 | `defines` 邊的 `properties` 是空的——行號在節點上，邊再放一份是重複。 |
+
+**D4 決定「能不能分析真實專案」。** Python 允許同一個作用域內同名（`@overload`、
+`@property` 配 `.setter`、`if` 兩個分支各定義一次），而 B1 對重複的 id 直接丟
+`BuildError`——不去重就是整次分析零結果。
+
+實測（環境內裝好的套件，排除測試檔）：
+
+| 套件 | 宣告數 | 撞名 | 主因 |
+|---|---|---|---|
+| pydantic | 2298 | **103（4.5%）** | `@overload` 84、條件式 19 |
+| anyio | 1292 | **95（7.4%）** | `@overload` 62、條件式 21、setter 12 |
+| networkx | 2329 | 39（1.7%） | 條件式 37、setter 2 |
+| starlette | 574 | 9（1.6%） | `@overload` 9 |
+| fastapi | 502 | 0 | — |
+
+**挑哪一筆不能固定位置**：58 個 `@overload` 群組的實作**全部在最後一筆**（挑第
+一筆會讓行號指到 `...` 空殼），而 14 個 `@property` 群組的**第一筆就是 getter**。
+「第一筆非 overload」同時滿足兩者。
+
 ---
 
 ## 4. 產出的資料
 
-`collapse()` 會往 `properties` 加三個鍵，都是收合才有的：
+`collapse()` 會往 `properties` 加四個鍵，都是收合才有的：
 
 | 鍵 | 放哪 | 型別 | 意義 |
 |---|---|---|---|
 | `weight` | 邊 | `int` | 這條邊代表原本幾條（C7） |
 | `internal_imports` | 節點 | `int` | 收合後落在這個節點內部的 import 筆數（C8） |
 | `packages` | `ext:*` 節點 | `list[str]` | 被合併的套件名單，已排序（E2） |
+| `sources` | `imports` 邊 | `list[dict]` | 被合併掉的原始邊，每項是 `{from, to, module, name, line}`（C11） |
 
-`packages` 留著名單而不只留數量，是為了之後做「點開展開」時不必重新分析。
+`packages` 與 `sources` 留著名單而不只留數量，是為了之後做「點開展開」時不必重新分析。
+
+`sources` 的量級：收合後揹的細節總數等於原本的 `imports` 邊數，不會因為收合而增生。本專案 222 條 imports 分散在 63 條收合邊上，整份 JSON 46 KB，仍低於檔案層的 64 KB。
 
 ---
 
@@ -194,6 +247,7 @@ CodeGraph → save(path) → JSON 檔 → load(path) → CodeGraph
 | I5 | **層級是累積的**：`level = n` 看得到的節點，`level = n+1` 一定也看得到。因為 C3 的條件是「深度 `<= level`」，深度沒變而門檻放寬。 |
 | I6 | `collapse()` 與 `only_edges()` 不改動輸入的 `document`（純函式）。 |
 | I7 | 收合前後，`imports` 的總筆數守恆：`Σ weight` ＋ `Σ internal_imports` ＝ 原本的 `imports` 邊數（`externals="hidden"` 除外，那會刻意丟掉一部分）。 |
+| I8 | 收合後每條 `imports` 邊的 `len(sources) == weight`（C7 與 C11 同一個迴圈加上去的）。 |
 
 I5 是「語意縮放」成立的前提：往下一層是**看得更細**，不是換一張圖。
 
@@ -205,8 +259,9 @@ I5 是「語意縮放」成立的前提：往下一層是**看得更細**，不�
 |---|---|---|
 | `tests/test_graph_build.py` | 11 | B1–B5、M1–M6 |
 | `tests/test_graph_query.py` | 8 | Q1–Q3 |
-| `tests/test_graph_views.py` | 12 | C1–C10、E1–E3、I5 |
+| `tests/test_graph_views.py` | 19 | C1–C11、E1–E3、I5、I8 |
 | `tests/test_graph_store.py` | 3 | S1–S5、I3 |
+| `tests/test_graph_declarations.py` | 13 | D1–D6 |
 
 ### 收合的實測（本專案，`level=3`）
 

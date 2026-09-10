@@ -4,18 +4,26 @@
 // pan / zoom 與選取全部消失。React 只負責餵資料與觸發 layout。
 
 import cytoscape from 'cytoscape';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { GraphDocument } from '../api/types';
 import { layoutOptions, type LayoutId } from '../graph/layouts';
 import { graphStyle, minimapStyle, palette } from '../graph/style';
-import { toElements } from '../graph/transform';
+import { toElements, type ImportDetail } from '../graph/transform';
+import { DetailBox } from './DetailBox';
 
 interface Props {
   graph: GraphDocument | null;
   layout: LayoutId;
   spacing: number;
   query: string;
+}
+
+/** 點開的那條邊：位置與內容。 */
+interface Pinned {
+  x: number;
+  y: number;
+  details: ImportDetail[];
 }
 
 export function GraphCanvas({ graph, layout, spacing, query }: Props) {
@@ -29,6 +37,8 @@ export function GraphCanvas({ graph, layout, spacing, query }: Props) {
   queryRef.current = query;
   // 目前套用在座標上的間距倍率。排版剛跑完是 1，之後靠比值往上疊。
   const spacingRef = useRef(spacing);
+  // 多這個 state 不會重建畫布：cytoscape 實例在 ref，建立它的 effect 依賴是 []。
+  const [pinned, setPinned] = useState<Pinned | null>(null);
 
   // 只建立一次。重建會失去 pan / zoom。
   useEffect(() => {
@@ -64,6 +74,14 @@ export function GraphCanvas({ graph, layout, spacing, query }: Props) {
     });
     main.on('viewport', () => drawViewport(main, map, viewportBox.current));
 
+    // 點邊釘住細節。怎麼關是 DetailBox 自己的事，這裡只管開。
+    main.on('tap', 'edge', (event) => {
+      const details = event.target.data('details') as ImportDetail[] | undefined;
+      if (!details?.length) return;
+      const at = event.renderedPosition;
+      setPinned({ x: at.x, y: at.y, details });
+    });
+
     // 點縮圖就把主畫布移到那個位置。
     map.on('tap', (event) => {
       const zoom = main.zoom();
@@ -92,6 +110,8 @@ export function GraphCanvas({ graph, layout, spacing, query }: Props) {
     if (!main || !graph) return;
 
     const elements = toElements(graph);
+    // 舊圖的框留著會指向已經不存在的邊
+    setPinned(null);
     main.elements().remove();
     main.add([...elements.nodes, ...elements.edges]);
     runLayout(main, mini.current, viewportBox.current, layout, spacingRef);
@@ -148,6 +168,8 @@ export function GraphCanvas({ graph, layout, spacing, query }: Props) {
           event.currentTarget.style.cursor = 'grab';
         }}
       />
+
+      {pinned && <DetailBox {...pinned} onClose={() => setPinned(null)} />}
 
       <div
         style={{

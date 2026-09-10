@@ -1,8 +1,8 @@
 """文件層級的視圖操作：篩邊、收合層級。
 
 **都是同一張圖的查詢條件**，不是另一條管線。兩者有順序：`collapse()` 要靠
-`contains` 邊算層級，所以**先收合再篩邊**——反過來的話 imports 視圖裡沒有
-`contains`，就收不動了。
+`contains` 與 `defines` 邊算層級，所以**先收合再篩邊**——反過來的話 imports
+視圖裡沒有那兩種邊，就收不動了。
 
 為什麼需要收合：檔案層有 83 個 `file` 節點、135 條聚合後的邊，而且
 `app/models/__init__.py` 一個節點就吃掉 59 條入邊，畫面上是蜘蛛網中心。收到目
@@ -15,7 +15,7 @@ import models」在目錄層本來就該是**一條**邊。
 """
 
 from collections.abc import Mapping, Sequence
-from typing import Literal
+from typing import Any, Literal
 
 from app.models import Edge, EdgeType, GraphDocument, Node, NodeType, make_id
 
@@ -26,6 +26,12 @@ ExternalMode = Literal["full", "grouped", "hidden"]
 #: `grouped` 時所有外部套件合併成的那一個節點
 GROUPED_EXTERNAL_ID = make_id(NodeType.EXTERNAL_PACKAGE, "*")
 
+#: 算層級時要爬的邊。**兩種都要吃**——`contains` 是檔案系統的包含、`defines`
+#: 是程式碼的宣告包含，接起來才是完整的一棵樹。只認 `contains` 的話 class 與
+#: function 上面沒有父節點，會被當成深度 0 的孤兒，每個層級都收不掉。
+#: CLAUDE.md 圖模型那節把這件事寫成 `defines` 的代價。
+_TREE_EDGES = frozenset({EdgeType.CONTAINS, EdgeType.DEFINES})
+
 
 def collapse(
     document: GraphDocument,
@@ -34,7 +40,8 @@ def collapse(
 ) -> GraphDocument:
     """把每個節點往上收到第 `level` 層；`None` 代表不收合。
 
-    `level` 是 `contains` 樹上的深度：0 是 repo，1 是它的直接子項，依此類推。
+    `level` 是層級樹（`contains` ＋ `defines`）上的深度：0 是 repo，1 是它的直
+    接子項，依此類推。函式掛在檔案底下，所以比它所在的檔案深一層。
     **收不到那麼深的節點就保留自己**——根目錄下的 `README.md` 在 `level=2` 時
     上面沒有兩層目錄，維持原樣。
     """
@@ -77,9 +84,7 @@ def _targets(document: GraphDocument, level: int | None) -> dict[str, str]:
         return {node.id: node.id for node in document.nodes}
 
     parent = {
-        edge.target: edge.source
-        for edge in document.edges
-        if edge.type == EdgeType.CONTAINS
+        edge.target: edge.source for edge in document.edges if edge.type in _TREE_EDGES
     }
     return {node.id: _ancestor(node.id, parent, level) for node in document.nodes}
 
@@ -163,7 +168,11 @@ def _grouped_external(packages: Sequence[str]) -> Node:
 
 
 def _edges(document: GraphDocument, target: Mapping[str, str]) -> list[Edge]:
-    """重新指向收合後的節點，去掉自環，平行的合成一條帶 `weight` 的邊。"""
+    """重新指向收合後的節點，去掉自環，平行的合成一條帶 `weight` 的邊。
+
+    `imports` 的邊另外把被合併掉的原始邊留在 `properties["sources"]`，前端才
+    問得出「這條 16 是哪幾個檔案造成的」。
+    """
     merged: dict[tuple[str, str, EdgeType], Edge] = {}
 
     for edge in document.edges:
@@ -179,9 +188,34 @@ def _edges(document: GraphDocument, target: Mapping[str, str]) -> list[Edge]:
                 source=source,
                 target=destination,
                 type=edge.type,
-                properties={"weight": 1},
+                properties=_collapsed_properties(edge),
             )
             continue
         existing.properties["weight"] += 1
+        if edge.type == EdgeType.IMPORTS:
+            existing.properties["sources"].append(_source_of(edge))
 
     return list(merged.values())
+
+
+def _collapsed_properties(edge: Edge) -> dict[str, Any]:
+    """收合後的邊帶什麼。
+
+    層級邊（`contains`、`defines`）不帶 `sources`：它們被收掉的細節換一個層級
+    就看得到，揹著只是讓 JSON 變大。`imports` 則相反——收合把「哪個檔案 import
+    哪個檔案」整個吃掉了，不留下來就再也問不到。
+    """
+    if edge.type != EdgeType.IMPORTS:
+        return {"weight": 1}
+    return {"weight": 1, "sources": [_source_of(edge)]}
+
+
+def _source_of(edge: Edge) -> dict[str, Any]:
+    """被收合掉的那一筆原始 import，只留展示得到的欄位。"""
+    return {
+        "from": edge.source,
+        "to": edge.target,
+        "module": edge.properties.get("module"),
+        "name": edge.properties.get("name"),
+        "line": edge.properties.get("line"),
+    }

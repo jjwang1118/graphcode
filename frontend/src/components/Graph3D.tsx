@@ -12,12 +12,20 @@ import SpriteText from 'three-spritetext';
 
 import type { GraphDocument, NodeType } from '../api/types';
 import { palette } from '../graph/style';
-import { toElements } from '../graph/transform';
+import { toElements, type ImportDetail } from '../graph/transform';
+import { DetailBox } from './DetailBox';
 
 interface Props {
   graph: GraphDocument | null;
   /** 節點間距。3D 版本改的是力導向的理想邊長，不是事後縮放座標。 */
   spacing: number;
+}
+
+/** 點開的那條線：位置與內容。跟 2D 共用同一個 DetailBox。 */
+interface Pinned {
+  x: number;
+  y: number;
+  details: ImportDetail[];
 }
 
 // 型別決定顏色與大小，跟 2D 版同一套編碼標準（style.ts 的 palette）。
@@ -27,8 +35,9 @@ const SIZE: Record<NodeType, number> = {
   file: 3.5,
   external_package: 4.5,
   module: 3.5,
-  class: 3.5,
-  function: 3,
+  // 住在檔案裡面，畫得比 file 小；function 數量最多，最小
+  class: 3,
+  function: 2.2,
 };
 
 const COLOR: Record<NodeType, string> = {
@@ -37,8 +46,8 @@ const COLOR: Record<NodeType, string> = {
   file: palette.file,
   external_package: palette.external,
   module: palette.file,
-  class: palette.accent,
-  function: palette.accent,
+  class: palette.class,
+  function: palette.function,
 };
 
 // 瀏覽器有沒有 WebGL。沒有的話 three.js 畫不出任何東西，而且不一定會拋錯——
@@ -56,6 +65,13 @@ const WEBGL = (() => {
 // 函式庫的 link 型別只保證有 source / target，我們額外掛的欄位得自己認。
 function isImport(link: object): boolean {
   return (link as { type?: string }).type === 'imports';
+}
+
+/** 層級骨架的兩種邊各有顏色，其餘（imports）另外處理。 */
+function skeletonColor(link: object): string {
+  return (link as { type?: string }).type === 'defines'
+    ? palette.edgeDefines
+    : palette.edge;
 }
 
 /** 這條線聚合了幾筆。`transform.ts` 算好的，沒有就當一筆。 */
@@ -104,6 +120,7 @@ export function Graph3D({ graph, spacing }: Props) {
   // 分開記，否則 ResizeObserver 晚一步觸發會把資料那一項蓋掉。
   const [size, setSize] = useState('尺寸未知');
   const [loaded, setLoaded] = useState('尚未載入資料');
+  const [pinned, setPinned] = useState<Pinned | null>(null);
   // 跟 2D 的 hover 一樣：選中的節點與它的鄰居保持原色，其餘全部淡掉。
   // 放 ref 不放 state——accessor 是建立實例時就註冊的，只能讀得到 ref 的當下值。
   const focus = useRef<Set<string> | null>(null);
@@ -147,7 +164,7 @@ export function Graph3D({ graph, spacing }: Props) {
           return text;
         })
         .linkColor((link) => {
-          const own = isImport(link) ? palette.edgeImports : palette.edge;
+          const own = isImport(link) ? palette.edgeImports : skeletonColor(link);
           const lit = focus.current;
           if (!lit) return own;
           const [source, target] = endsOf(link);
@@ -177,6 +194,20 @@ export function Graph3D({ graph, spacing }: Props) {
           placed.position.x = ends.start.x + (ends.end.x - ends.start.x) / 2;
           placed.position.y = ends.start.y + (ends.end.y - ends.start.y) / 2;
           placed.position.z = ends.start.z + (ends.end.z - ends.start.z) / 2;
+        })
+        // 線很細，加大點擊的判定範圍，否則幾乎點不到
+        .linkHoverPrecision(6)
+        // 點線釘住細節。怎麼關是 DetailBox 自己的事，這裡只管開。
+        .onLinkClick((link: object, event: MouseEvent) => {
+          const details = (link as { details?: ImportDetail[] }).details;
+          if (!details?.length) return;
+          // 場景座標與螢幕座標不通用，直接拿點擊當下的滑鼠位置換算成容器內座標
+          const box = container.getBoundingClientRect();
+          setPinned({
+            x: event.clientX - box.left,
+            y: event.clientY - box.top,
+            details,
+          });
         })
         // hover 與點擊都吃：hover 是 2D 的行為，點擊是滑不準時的備案
         .onNodeHover((node) => light(node as { id: string } | null))
@@ -241,6 +272,8 @@ export function Graph3D({ graph, spacing }: Props) {
     }
     neighbours.current = adjacency;
     focus.current = null;
+    // 舊圖的框留著會指向已經不存在的線
+    setPinned(null);
 
     instance.graphData({
       nodes: elements.nodes.map((node) => ({
@@ -255,6 +288,7 @@ export function Graph3D({ graph, spacing }: Props) {
         target: edge.data.target,
         type: edge.data.type,
         count: edge.data.count,
+        details: edge.data.details,
       })),
     });
     setLoaded(`節點 ${elements.nodes.length} 邊 ${elements.edges.length}`);
@@ -301,6 +335,8 @@ export function Graph3D({ graph, spacing }: Props) {
       >
         3D · WebGL {WEBGL} · {size} · {loaded}
       </div>
+
+      {pinned && <DetailBox {...pinned} onClose={() => setPinned(null)} />}
 
       {(failure || !graph) && (
         <div

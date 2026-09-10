@@ -26,7 +26,7 @@
 | 名稱 | 簽章 | 說明 |
 |---|---|---|
 | `from_files` | `(files: Sequence[str]) -> ModuleIndex` | 從 scan 的檔案清單建索引。`files` 是相對於 repo 根的路徑 |
-| `to_edges` | `(facts: Mapping[str, Sequence[Fact]], index: ModuleIndex, resolver: Resolver) -> ResolveResult` | `facts` 以**來源檔案的節點 id** 為 key |
+| `to_edges` | `(facts: Mapping[str, Sequence[Import]], index: ModuleIndex, resolver: Resolver) -> ResolveResult` | `facts` 以**來源檔案的節點 id** 為 key。**只吃 `Import`**——宣告不經 resolve，分流在 `pipeline.py` |
 
 ### 2.2 型別
 
@@ -49,7 +49,7 @@
 |---|---|---|
 | `ModuleIndex.lookup` | `(module: str, importer_id: str) -> Resolution \| None` | 絕對 import 用。查不到回 `None` |
 | `ModuleIndex.at_path` | `(path: str) -> str \| None` | 相對 import 用。回節點 id |
-| `Resolver`（Protocol） | `target(fact: Fact, importer_id: str, index: ModuleIndex) -> Resolution \| None` | 每個語言一個實作 |
+| `Resolver`（Protocol） | `target(fact: Import, importer_id: str, index: ModuleIndex) -> Resolution \| None` | 每個語言一個實作 |
 | `PythonResolver` | 實作 `Resolver` | 由語言 registry 以副檔名取出 |
 
 `ModuleIndex` 是**專案知識**，一律以參數傳入，不得做成可變的全域狀態。

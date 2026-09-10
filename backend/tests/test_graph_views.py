@@ -83,6 +83,26 @@ def test_a_node_too_shallow_to_collapse_keeps_itself() -> None:
     assert "file:README.md" in ids(result)
 
 
+def test_declarations_collapse_into_the_file_they_live_in() -> None:
+    # 層級樹要吃 contains ＋ defines。只認 contains 的話 class / function 上面
+    # 沒有父節點，會被當成深度 0 的孤兒，每個層級都收不掉。
+    original = document([])
+    original.nodes.append(
+        Node(id="function:a/b/one.py::run", type=NodeType.FUNCTION, label="run")
+    )
+    original.edges.append(
+        Edge(
+            source="file:a/b/one.py",
+            target="function:a/b/one.py::run",
+            type=EdgeType.DEFINES,
+        )
+    )
+
+    # one.py 在第 3 層，它的函式就在第 4 層
+    assert "function:a/b/one.py::run" not in ids(collapse(original, level=3))
+    assert "function:a/b/one.py::run" in ids(collapse(original, level=4))
+
+
 def test_imports_between_collapsed_groups_become_one_weighted_edge() -> None:
     original = document(
         [
@@ -104,6 +124,74 @@ def test_imports_inside_one_group_are_counted_on_the_node_not_drawn() -> None:
     assert imports_of(result) == {}
     collapsed = next(node for node in result.nodes if node.id == "dir:a")
     assert collapsed.properties["internal_imports"] == 1
+
+
+def test_collapsed_imports_keep_the_edges_they_swallowed() -> None:
+    original = document(
+        [
+            ("file:a/b/one.py", "file:README.md"),
+            ("file:a/b/two.py", "file:README.md"),
+        ]
+    )
+
+    result = collapse(original, level=1)
+
+    edge = next(edge for edge in result.edges if edge.type == EdgeType.IMPORTS)
+    assert edge.properties["weight"] == len(edge.properties["sources"])
+    assert [(one["from"], one["to"]) for one in edge.properties["sources"]] == [
+        ("file:a/b/one.py", "file:README.md"),
+        ("file:a/b/two.py", "file:README.md"),
+    ]
+
+
+def test_collapsed_imports_carry_the_original_properties() -> None:
+    original = document([])
+    original.edges.append(
+        Edge(
+            source="file:a/b/one.py",
+            target="file:README.md",
+            type=EdgeType.IMPORTS,
+            properties={"module": "README", "name": "thing", "line": 12},
+        )
+    )
+
+    result = collapse(original, level=1)
+
+    edge = next(edge for edge in result.edges if edge.type == EdgeType.IMPORTS)
+    assert edge.properties["sources"] == [
+        {
+            "from": "file:a/b/one.py",
+            "to": "file:README.md",
+            "module": "README",
+            "name": "thing",
+            "line": 12,
+        }
+    ]
+
+
+def test_contains_edges_do_not_carry_sources() -> None:
+    # 目錄的細節換個層級就看得到，揹著只是讓 JSON 變大
+    result = collapse(document([]), level=1)
+
+    contains = [edge for edge in result.edges if edge.type == EdgeType.CONTAINS]
+    assert contains
+    assert all("sources" not in edge.properties for edge in contains)
+
+
+def test_sources_remember_which_package_each_edge_pointed_at() -> None:
+    # grouped 把套件併成一個節點，`to` 是唯一還留著「原本指向誰」的地方
+    original = document(
+        [("file:a/solo.py", "ext:torch"), ("file:a/solo.py", "ext:numpy")],
+        externals=["ext:torch", "ext:numpy"],
+    )
+
+    result = collapse(original, externals="grouped")
+
+    edge = next(edge for edge in result.edges if edge.target == "ext:*")
+    assert [one["to"] for one in edge.properties["sources"]] == [
+        "ext:torch",
+        "ext:numpy",
+    ]
 
 
 def test_meta_counts_follow_the_collapsed_graph() -> None:
