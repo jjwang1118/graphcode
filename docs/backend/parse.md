@@ -57,7 +57,7 @@ class Parser(Protocol):
 兩者湊得出來，而裸名正是之後解析呼叫時要查的 key，兩個欄位都有人用。
 
 `kind` 用字串而不是 `NodeType`：parse 一旦 import `app.models`，「Fact 不是節
-點」那條界線就破了。換型別的對照表在 `app/graph/declarations.py`。
+點」那條界線就破了。換型別的對照表在 `app/facts/declarations.py`。
 
 全部為 `@dataclass(frozen=True)`，**不是 pydantic**。理由見 §8.4。
 
@@ -150,8 +150,10 @@ resolve  →  Edge   「file:app/api/analyze.py --imports--> file:app/graph/__in
 ```
 
 **只有 `Import` 走這條路。** `Defines` 不必問任何人——它自己就是節點，由
-`app/graph/declarations.py` 直接接成節點與 `defines` 邊。分流寫在 `pipeline.py`
-（見 §9）。
+`app/facts/declarations.py` 直接接成節點與 `defines` 邊。
+
+哪一種 Fact 走哪條路，寫在 `app/facts/` 的**型別 → 產生器表**裡（`facts.md`
+F1–F3），parse 不必知道。
 
 ### 4.2 失敗的痕跡
 
@@ -338,12 +340,25 @@ resolve 需要的資訊，字串裡塞不下：
 | 事實依行號排序（R9） | `ast.walk` 是廣度優先，順序與原始碼無關 | 拿掉 `sorted` |
 | 動態 import 不計入失敗 | 那不是失敗，是靜態分析的邊界 | — |
 
+### 8.9 為什麼 Fact 不自己宣告它產生什麼邊（plan 5.2）
+
+§9 原本掛著「要不要讓 Fact 自己說明它產生什麼節點／邊」。實作 plan 5.2 時**確
+認那個做法做不到**，改成型別 → 產生器的表。擋住的是 parse 這一側的兩條界線：
+
+| 擋在哪 | 說明 |
+|---|---|
+| Fact 不知道自己的邊指向誰 | `Import("fastapi")` 在 resolve 之前不知道 target 是 `ext:fastapi` 還是某個 `file:` 節點。那正是 §1 的第一條限制 |
+| 宣告節點要 import `app.models` | 「Fact 不是節點」與 `kind` 刻意用字串（§2.2、§8.5）都靠 parse 不認識 `app.models` 撐著 |
+
+表把兩件事都留在 parse 之外：**Fact 仍然只是資料**，知道怎麼接圖的是產生器。
+完成條件（加一種 Fact 不必在 build 加一個 `if`）一樣達成，代價是多一個註冊動
+作。完整取捨見 `facts.md` §8.6。
+
 ---
 
 ## 9. 未定之處
 
 | 主題 | 未定的事 | 重新評估的時機 |
 |---|---|---|
-| Fact 宣告邊 | Fact 要不要自己說明它產生什麼節點／邊，好讓 build 變成不認識具體型別的通用迴圈。現在的分流是 `pipeline.py` 裡的兩行 `isinstance`：`Defines` 交給 `declarations.to_nodes()`、`Import` 交給 `resolve.to_edges()` | **已經到了**。5.1 讓 Fact 從一種變成兩種，plan 5.2 就是這件事。注意就算 build 通用化，resolve 仍要分流（`Import` 是「模組名 → 檔案」、`Calls` 是「函式名 → 函式」，兩套演算法），最多只清掉一層 |
 | 語法上限的記錄 | 是否要在 `meta` 記下後端的 Python 版本，讓「為什麼這些檔案失敗」有跡可循 | 真的遇到版本落差時 |
 | 動態 import | 目前完全看不到。要不要至少標記「這個檔案有動態 import」尚未決定 | 遇到大量使用的專案時 |

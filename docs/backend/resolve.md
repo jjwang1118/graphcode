@@ -26,7 +26,7 @@
 | 名稱 | 簽章 | 說明 |
 |---|---|---|
 | `from_files` | `(files: Sequence[str]) -> ModuleIndex` | 從 scan 的檔案清單建索引。`files` 是相對於 repo 根的路徑 |
-| `to_edges` | `(facts: Mapping[str, Sequence[Import]], index: ModuleIndex, resolver: Resolver) -> ResolveResult` | `facts` 以**來源檔案的節點 id** 為 key。**只吃 `Import`**——宣告不經 resolve，分流在 `pipeline.py` |
+| `to_edges` | `(facts: Mapping[str, Sequence[Import]], index: ModuleIndex, resolver: Resolver) -> ResolveResult` | `facts` 以**來源檔案的節點 id** 為 key。**只吃 `Import`**——宣告不經 resolve，分流在 `app/facts/` 的表（見 `facts.md`），呼叫端是 `ImportProducer` |
 
 ### 2.2 型別
 

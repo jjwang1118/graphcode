@@ -8,16 +8,18 @@ FastAPI 就測。
 parse 跑完才交給 build，因為解析失敗的訊息要貼回對應的 `file` 節點。
 """
 
-from collections.abc import Iterable, Mapping
+from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app.graph import CodeGraph, build, to_nodes
+from app.facts import Context, to_graph
+from app.graph import CodeGraph, build
 from app.graph.build import Diagnostics
 from app.languages import Language, for_path
 from app.models import Edge, Node, NodeType, make_id
-from app.parsers import Fact, Import
-from app.resolve import from_files, to_edges
+from app.parsers import Fact
+from app.resolve import from_files
 from app.scan import from_root
 
 
@@ -29,33 +31,25 @@ def analyze(root: Path) -> CodeGraph:
 
     nodes: list[Node] = [_annotated(node, parsed.errors) for node in scanned.nodes]
     edges: list[Edge] = list(scanned.edges)
-    ambiguous = 0
-    unresolved = 0
+    counts: Counter[str] = Counter()
 
     # 依語言分組：名稱解析規則是 per-language，不能拿 Python 的規則去解 TS 的
     # import。目前只有一組，但寫成迴圈，加語言時這裡不用改。
     for language, facts in parsed.facts.items():
-        # 兩種事實走不同的路：宣告自己就是節點，不必問任何人；import 是一個
-        # 名字，要比對全域索引才知道指向誰。**這個分流就是 plan 5.2 要通用化
-        # 的東西**，在那之前誠實地寫成兩行。
-        declared = to_nodes(facts)
-        nodes.extend(declared.nodes)
-        edges.extend(declared.edges)
-
-        resolved = to_edges(_imports_of(facts), index, language.resolver)
-        nodes.extend(resolved.nodes)
-        edges.extend(resolved.edges)
-        ambiguous += resolved.ambiguous
-        unresolved += resolved.unresolved
+        # 哪一種事實走哪條路寫在 app/facts/ 的表裡，這裡只負責把它跑一遍——
+        # **加一種 Fact 不必動這個檔案**。
+        produced = to_graph(facts, Context(index=index, language=language))
+        nodes.extend(produced.nodes)
+        edges.extend(produced.edges)
+        counts.update(produced.counters)
 
     return build(
         nodes,
         edges,
-        diagnostics=Diagnostics(
-            parse_failures=len(parsed.errors),
-            ambiguous_imports=ambiguous,
-            unresolved_imports=unresolved,
-        ),
+        # `counts` 的 key 就是 `Diagnostics` 的欄位名，所以這裡不必提任何一個
+        # 計數的名字；`parse_failures` 不是任何 Fact 的產物（整份檔案都沒解析
+        # 出來，一筆事實都沒有），仍由這裡算。
+        diagnostics=Diagnostics(parse_failures=len(parsed.errors), **counts),
     )
 
 
@@ -83,14 +77,6 @@ def _parse_all(root: Path, files: Iterable[str]) -> _Parsed:
         if result.facts:
             parsed.facts.setdefault(language, {})[node_id] = list(result.facts)
     return parsed
-
-
-def _imports_of(facts: Mapping[str, list[Fact]]) -> dict[str, list[Import]]:
-    """resolve 只吃 import 事實——resolver 會讀 `fact.module` 與 `fact.level`。"""
-    return {
-        file_id: [fact for fact in items if isinstance(fact, Import)]
-        for file_id, items in facts.items()
-    }
 
 
 def _annotated(node: Node, errors: dict[str, str]) -> Node:

@@ -2,7 +2,9 @@
 
 對應程式碼 `backend/app/graph/`。職責的位置定義在 CLAUDE.md › 架構 › build；序列化形狀見 `graph_schema.md`。
 
-這一層有五個模組：`build.py`（組與驗）、`query.py`（查詢層介面）、`views.py`（篩邊與收合）、`store.py`（存檔讀回）、`declarations.py`（宣告事實 → 節點與邊）。
+這一層有四個模組：`build.py`（組與驗）、`query.py`（查詢層介面）、`views.py`（篩邊與收合）、`store.py`（存檔讀回）。
+
+宣告事實 → 節點與邊曾經住在這裡（`declarations.py`），plan 5.2 搬到 `app/facts/`，規格見 [facts.md](facts.md)。
 
 ---
 
@@ -60,24 +62,6 @@
 |---|---|
 | `save` | `(graph: CodeGraph, path: Path) -> None` |
 | `load` | `(path: Path) -> CodeGraph` |
-
-### 2.5 宣告 · `declarations.py`
-
-把 parse 的 `Defines` 事實變成 `class` / `function` 節點與 `defines` 邊。
-
-| 名稱 | 簽章 |
-|---|---|
-| `to_nodes` | `(facts: Mapping[str, Sequence[Fact]]) -> DeclareResult` |
-| `DeclareResult` | frozen dataclass：`nodes: tuple[Node, ...]`、`edges: tuple[Edge, ...]` |
-
-`facts` 以**來源檔案的節點 id** 為 key——fact 自己不知道它從哪個檔案來。
-
-**不查任何索引**，跟 resolve 是兩回事：`Import` 是一個名字、要比對全域索引才知
-道指向誰；宣告自己就是節點。所以這裡是純對應層，餵一份假 fact 就測得動。
-
-放在 `app/graph/` 而不是 parse 或 resolve：產出就是 build 的輸入，而 CLAUDE.md
-把「`Fact → 節點/邊` 的對應規則」這條例外掛在 build 名下。**這是暫時的家**，
-plan 5.2 要讓它變成不認識具體型別的通用迴圈。
 
 ---
 
@@ -173,35 +157,6 @@ CodeGraph → save(path) → JSON 檔 → load(path) → CodeGraph
 | S4 | `load()` 把三個計數包成 `Diagnostics` 傳回去，否則讀一次就歸零。 |
 | S5 | `cycles` 等其餘 `meta` 讀回時**重算**——它們是衍生資訊，重算才能保證與節點邊的內容一致。 |
 
-### 3.8 宣告 → 節點與邊 · `to_nodes`
-
-| # | 規則 |
-|---|---|
-| D1 | 每一筆 `Defines` 產生一個節點，id 是 `make_id(kind, 檔案路徑, member=完整路徑)`，如 `function:src/app.py::Runner.run`。 |
-| D2 | 每個節點一條 `defines` 邊：頂層宣告的來源是該 `file` 節點，其餘是包住它的那個宣告。 |
-| D3 | 節點的 `label` 是**裸名**（`run`），完整路徑在 id 裡；`properties["line"]` 是宣告那一行。 |
-| D4 | 同一個 id 只留一個節點，挑**第一筆 `overload=False`** 的；整組都是 `@overload` 簽章就挑第一筆。 |
-| D5 | 被 D4 合併掉的那幾筆的行號記在 `properties["redefined_at"]`，資訊不丟。 |
-| D6 | `defines` 邊的 `properties` 是空的——行號在節點上，邊再放一份是重複。 |
-
-**D4 決定「能不能分析真實專案」。** Python 允許同一個作用域內同名（`@overload`、
-`@property` 配 `.setter`、`if` 兩個分支各定義一次），而 B1 對重複的 id 直接丟
-`BuildError`——不去重就是整次分析零結果。
-
-實測（環境內裝好的套件，排除測試檔）：
-
-| 套件 | 宣告數 | 撞名 | 主因 |
-|---|---|---|---|
-| pydantic | 2298 | **103（4.5%）** | `@overload` 84、條件式 19 |
-| anyio | 1292 | **95（7.4%）** | `@overload` 62、條件式 21、setter 12 |
-| networkx | 2329 | 39（1.7%） | 條件式 37、setter 2 |
-| starlette | 574 | 9（1.6%） | `@overload` 9 |
-| fastapi | 502 | 0 | — |
-
-**挑哪一筆不能固定位置**：58 個 `@overload` 群組的實作**全部在最後一筆**（挑第
-一筆會讓行號指到 `...` 空殼），而 14 個 `@property` 群組的**第一筆就是 getter**。
-「第一筆非 overload」同時滿足兩者。
-
 ---
 
 ## 4. 產出的資料
@@ -261,7 +216,6 @@ I5 是「語意縮放」成立的前提：往下一層是**看得更細**，不�
 | `tests/test_graph_query.py` | 8 | Q1–Q3 |
 | `tests/test_graph_views.py` | 19 | C1–C11、E1–E3、I5、I8 |
 | `tests/test_graph_store.py` | 3 | S1–S5、I3 |
-| `tests/test_graph_declarations.py` | 13 | D1–D6 |
 
 ### 收合的實測（本專案，`level=3`）
 

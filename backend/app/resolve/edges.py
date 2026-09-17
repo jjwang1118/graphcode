@@ -17,8 +17,8 @@ from app.resolve.index import ModuleIndex, Resolution
 class Resolver(Protocol):
     """吃的是 `Import`，不是所有 Fact。
 
-    宣告不經過 resolve——它自己就是節點，由 `app/graph/declarations.py` 直接接
-    成圖。分流在 `pipeline.py`。
+    宣告不經過 resolve——它自己就是節點，由 `app/facts/declarations.py` 直接接
+    成圖。分流在 `app/facts/producers.py` 的表，呼叫這裡的是 `ImportProducer`。
     """
 
     def target(

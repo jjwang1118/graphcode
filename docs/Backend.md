@@ -3,7 +3,7 @@
 
 後端是**一條單向管線**：每一段只吃前一段的輸出，不回頭呼叫。所以文件也照管線切——一段一份，加上兩份橫切的（序列化契約、HTTP 層）。
 
-各階段的**職責**定義在 CLAUDE.md › 架構，**檔案擺放**在 `System_arch.md`，`backend/` 底下那七份是各元件的**規格書**，格式見下方「規格書格式」。
+各階段的**職責**定義在 CLAUDE.md › 架構，**檔案擺放**在 `System_arch.md`，`backend/` 底下那八份是各元件的**規格書**，格式見下方「規格書格式」。
 
 ---
 
@@ -16,7 +16,8 @@
 | [backend/scan.md](backend/scan.md) | ② scan | **走訪完，圖的 `contains` 那一半就完整了**；忽略規則是雜訊過濾，與安全無關 | `app/scan/` |
 | [backend/parse.md](backend/parse.md) | ③ parse | **失敗必須是顯性的**——`ast` 遇到語法錯誤是整份檔案歸零，所以失敗要標在節點上、也要計數 | `app/parsers/` |
 | [backend/resolve.md](backend/resolve.md) | ④ resolve | **「外部」不是判斷出來的，是查不到的結果**——所以索引建錯，內部依賴會被靜靜地誤判成第三方套件 | `app/resolve/` |
-| [backend/graph.md](backend/graph.md) | ⑤ build ＋ 查詢層 ＋ 視圖 ＋ 存檔 ＋ 宣告 | **networkx 不外露**——查詢層一律回 `app/models/` 的型別，這是日後換圖資料庫的前提 | `app/graph/` |
+| [backend/facts.md](backend/facts.md) | ④ˊ facts | **加一種 Fact ＝ 表加一筆 ＋ 寫一個產生器**——分流寫在型別 → 產生器的表裡，`pipeline.py` 與 `build.py` 都不認識具體型別 | `app/facts/` |
+| [backend/graph.md](backend/graph.md) | ⑤ build ＋ 查詢層 ＋ 視圖 ＋ 存檔 | **networkx 不外露**——查詢層一律回 `app/models/` 的型別，這是日後換圖資料庫的前提 | `app/graph/` |
 | [backend/api.md](backend/api.md) | 出口（橫切） | **視圖是一個欄位，不是一個端點**；錯誤訊息對外一律模糊，詳細只進日誌 | `app/api/` |
 
 `languages/` 沒有獨立文件——語言 registry 由 parse 與 resolve 共用，規格寫在 [parse.md](backend/parse.md) §2.3。
@@ -82,14 +83,15 @@
 | 1 | ingest | [ingest.md](backend/ingest.md) | 判斷這個路徑准不准讀 | 一個可安全走訪的根目錄 |
 | 2 | scan | [scan.md](backend/scan.md) | 走訪目錄、套用忽略規則 | `file` / `directory` 節點 ＋ `contains` 邊 |
 | 3 | parse | [parse.md](backend/parse.md) | 逐檔案抽出事實（副檔名查不到 registry 就跳過） | `Import(...)` 與 `Defines(...)` 的清單，或一句失敗原因 |
-| 4 | resolve | [resolve.md](backend/resolve.md) | 把 `Import` 的名字接到節點上 | `imports` 邊 ＋ `external_package` 節點 |
+| 4 | facts | [facts.md](backend/facts.md) | 依型別查表，把每一種事實交給它的產生器 | 節點 ＋ 邊 ＋ 計數 |
+| 4ˊ | resolve | [resolve.md](backend/resolve.md) | 被 `ImportProducer` 叫到，把 `Import` 的名字接到節點上 | `imports` 邊 ＋ `external_package` 節點 |
 | 5 | build | [graph.md](backend/graph.md) | 驗證、組圖、算 `meta` | `CodeGraph`（networkx 包在裡面） |
 | 6 | serialize | [graph_schema.md](backend/graph_schema.md) | 轉成跨得過邊界的形狀 | `{ nodes, edges, meta }` |
 | 7 | 回應 | [api.md](backend/api.md) | 同步回整份 `GraphDocument` | HTTP 200 ＋ JSON |
 
 **跑完第 2 步，目錄樹視圖的資料就齊了**——階段 1 刻意跳過 3 與 4，就是因為 `contains` 這一半不必碰最難的兩層。第 3、4 步補的是 `imports` 那一半。
 
-`Defines` 不經第 4 步——宣告自己就是節點，由 `app/graph/declarations.py` 直接接成 `class` / `function` 節點與 `defines` 邊。
+`Defines` 不經 resolve——宣告自己就是節點，由 `app/facts/declarations.py` 直接接成 `class` / `function` 節點與 `defines` 邊。**兩種事實都走第 4 步**，差別在表把它們分給不同的產生器。
 
 實測本專案：406 節點（function 253 / file 91 / class 25 / dir 21 / ext 15 / repo 1）、675 條邊（imports 285 / defines 278 / contains 112）。
 
@@ -115,8 +117,9 @@
 
 | 主題 | 未定的事 | 在哪份文件 |
 |---|---|---|
-| parse | Fact 要不要自己宣告它產生什麼邊（build 目前仍需 `Fact → 節點/邊` 的對應規則）。**重評時機已到**——5.1 讓 Fact 從一種變成兩種，plan 5.2 就是這件事 | `parse.md` §9 |
 | parse | 動態 import 完全看不到，要不要至少標記「這個檔案有動態 import」 | `parse.md` §9 |
+| facts | `counters` 的 key 是字串約定，打錯要到執行期才炸 | `facts.md` §9 |
+| facts | 產生器之間的相依：`Calls`（5.6）需要 `Defines` 產出的宣告表 | `facts.md` §9 |
 | resolve | 被 scan 忽略卻被 import 的目標，要不要跟真的第三方套件區分 | `resolve.md` §8 |
 | resolve | 「取最近」是啟發式，不讀 `PYTHONPATH` / `setup.py` 的真實搜尋順序 | `resolve.md` §8 |
 | 解析 | 忽略規則要不要改讀專案自己的 `.gitignore`；`*.min.js` 這種樣式比對 | `scan.md` §9 |
@@ -143,6 +146,7 @@
 | `parse_error` 由誰貼到 file 節點上 | `pipeline.py` 的 `_annotated()`。scan 產節點、parse 產錯誤，兩者在管線匯流處會合，不進 build。見 `api.md` P4 |
 | resolve 怎麼決定模組名的起點 | 不猜，每一種數法都登記。`__init__.py` 判斷起點的做法**實測後推翻**。見 `resolve.md` §9.1 |
 | 收合要在前端還是後端做 | 後端。`collapse()` 是 `GraphDocument → GraphDocument` 的純函式，換層級＝重打一次 API。見 `graph.md` §3.4 |
+| `Fact → 節點/邊` 的對應方式 | **型別 → 產生器的表**，住在 `app/facts/`。「讓 Fact 自己宣告它產生什麼邊」實作時確認做不到（Fact 在 resolve 前不知道 target，且宣告節點要 import `app.models`）。見 `facts.md` §8.6、`parse.md` §8.9 |
 
 ---
 

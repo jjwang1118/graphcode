@@ -52,7 +52,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `calls` | 邊 | 函式呼叫，`function → function`。被呼叫 n 次就是 n 條邊，收合到上層時聚合成一條帶權重的邊 |
 | `inherits` | 邊 | 類別繼承或介面實作，`class → class` |
 
-加入新型別時應該**只動 parse 層**。serialize 與前端把型別當資料處理，不該為了多一種型別而改結構；若某次新增型別逼得它們跟著改，那是模型設計有問題，先講出來。（build 目前仍需一條 `Fact → 節點/邊` 的對應規則，是唯一的例外，見「架構 › 後端管線 › parse」。）
+加入新型別時應該**只動 parse 層**，外加在 `app/facts/` 的表上註冊一筆。serialize 與前端把型別當資料處理，不該為了多一種型別而改結構；若某次新增型別逼得它們跟著改，那是模型設計有問題，先講出來。（`Fact → 節點/邊` 的對應規則有自己的一層，不在 build 裡，見「架構 › 後端管線 › facts」。）
 
 ### 範例：同一份 schema，跨兩個階段
 
@@ -181,16 +181,23 @@ uvicorn 改程式碼要自己重啟（或加 `--reload`）；vite 存檔即時�
    ┌──────────┐                                    │
    │  parse   │  逐檔案，只吃 ①                    │
    └──────────┘                                    │
-        │  ③引用 Import("fastapi") …               │
-        │  ④宣告 Defines("class","Runner") ────────┤
+        │  ③一袋不分型別的 Fact                    │
+        │    Import("fastapi")、Defines("class",…) │
         ▼                                          │
    ┌──────────┐                                    │
-   │ resolve  │  需全域索引，等所有檔案 parse 完   │
+   │  facts   │  依型別查表，交給各自的產生器      │
    └──────────┘                                    │
-        │  imports 邊                               │
+        │  ▲                                       │
+        │  │ imports 邊 ＋ external_package 節點    │
+        │  │                                       │
+        │ ┌──────────┐                             │
+        │ │ resolve  │  需全域索引，只有要查名字   │
+        │ └──────────┘  的型別才進來               │
+        │                                          │
+        │  ④節點 ＋ 邊 ＋ 計數                     │
         ▼                                          │
    ┌──────────┐                                    │
-   │  build   │  ◄── ②④ 直接進來，不經 resolve
+   │  build   │  ◄── ② 直接進來，不經 facts
    └──────────┘
         │  networkx 圖（已驗證、含 meta）
         ▼
@@ -270,7 +277,25 @@ registry 裝的是**語言知識**（這個語言的 import 怎麼寫），對�
 
 每個語言一個模組，由**語言 registry** 以副檔名為 key 取出對應的 parser。副檔名查不到就跳過。
 
-回傳事實物件而非裸字串，是「新增型別只動 parse 層」能成立的前提 — 加新東西就是加一種 Fact，介面與既有 parser 都不動。但嚴格說 build 仍需要一條 `Fact → 節點/邊` 的對應規則；要讓那句話完全成立，得讓 Fact 自己宣告它產生什麼邊，讓 build 變成不認識具體型別的通用迴圈。**此點尚未決定。**
+回傳事實物件而非裸字串，是「新增型別只動 parse 層」能成立的前提 — 加新東西就是加一種 Fact，介面與既有 parser 都不動。那條 `Fact → 節點/邊` 的對應規則不住在 build 裡，而是下一層 **facts** 的一張表。
+
+---
+
+### facts · `backend/app/facts/`
+
+**輸入** 一袋不分型別的 Fact → **輸出** 節點 ＋ 邊 ＋ 計數
+
+| # | 要做的事 | 重點 |
+|---|---|---|
+| 1 | 依 `type(fact)` 分堆 | 分堆之後每個產生器只看得到自己那一種，內部不必再寫 `isinstance` |
+| 2 | 查「型別 → 產生器」的表 | 查不到**丟例外**，不靜靜跳過 — parser 吐出沒人接的事實是表漏了一筆 |
+| 3 | 合併各產生器的結果 | 節點、邊串接，計數同名相加 |
+
+**加一種 Fact ＝ 表加一筆 ＋ 寫一個產生器**，`pipeline.py` 與 build 都不必動。
+
+分界的判準是**「只看這一個檔案夠不夠」**：`Defines` 夠（宣告就寫在這個檔案裡），直接變節點；`Import`、之後的 `Calls` / `Inherits` 不夠，由產生器轉交 resolve 去查。
+
+自成一層而不是放進 `app/graph/`：`ImportProducer` 要呼叫 resolve，放進去會讓 build 那一層開始依賴 resolve，破掉「build 不在乎節點與邊從哪來」。理由與 `app/languages/` 獨立成一層相同 — **需要同時認得上下游的接線點，自己要有一層**。
 
 ---
 
@@ -348,7 +373,8 @@ build 不在乎節點與邊從哪來，**因此分析路徑與讀取路徑共用
 | parse | `backend/app/parsers/` | `docs/backend/parse.md` |
 | resolve | `backend/app/resolve/` | `docs/backend/resolve.md` |
 | 語言 registry | `backend/app/languages/` | `docs/backend/parse.md` ＋ `docs/backend/resolve.md`（各講自己那一半） |
-| build／查詢層／收合／存檔／宣告 | `backend/app/graph/` | `docs/backend/graph.md` |
+| facts（型別 → 產生器的表、宣告） | `backend/app/facts/` | `docs/backend/facts.md` |
+| build／查詢層／收合／存檔 | `backend/app/graph/` | `docs/backend/graph.md` |
 | serialize（schema、id 規則） | `backend/app/models/` | `docs/backend/graph_schema.md` |
 | API 與管線編排 | `backend/app/api/`、`main.py`、`pipeline.py` | `docs/backend/api.md` |
 | 後端全體（規格書格式、跨元件的決定） | `backend/` | `docs/Backend.md` |

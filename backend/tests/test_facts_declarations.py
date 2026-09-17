@@ -1,11 +1,11 @@
-from app.graph.declarations import to_nodes
+from app.facts.declarations import to_nodes
 from app.models import EdgeType, NodeType
-from app.parsers import Defines, Fact, Import
+from app.parsers import Defines
 
 FILE = "file:src/app.py"
 
 
-def declare(*facts: Fact) -> tuple[list[str], list[tuple[str, str]]]:
+def declare(*facts: Defines) -> tuple[list[str], list[tuple[str, str]]]:
     """回傳（節點 id 清單, (來源, 目標) 的邊清單），大多數斷言只在意這兩件事。"""
     result = to_nodes({FILE: list(facts)})
 
@@ -72,16 +72,6 @@ def test_every_edge_is_a_defines_edge_with_nothing_on_it() -> None:
     assert result.edges[0].type == EdgeType.DEFINES
     # 行號在節點上，邊再放一份是重複
     assert result.edges[0].properties == {}
-
-
-def test_imports_are_ignored_here() -> None:
-    nodes, edges = declare(
-        Import(module="os", level=0, name=None, alias=None, line=1),
-        Defines(kind="function", name="run", parent=None, line=2),
-    )
-
-    assert nodes == ["function:src/app.py::run"]
-    assert len(edges) == 1
 
 
 # --- 同一個作用域內的同名宣告 -------------------------------------------------

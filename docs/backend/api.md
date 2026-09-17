@@ -97,16 +97,20 @@ A7 的順序不可對調：`collapse()` 要靠 `contains` 邊算層級，先篩�
 
 | # | 規則 |
 |---|---|
-| P1 | 依序呼叫 `scan.from_root()` → 逐檔 parse → `resolve.from_files()` 建索引 → `to_edges()` → `build()`。 |
+| P1 | 依序呼叫 `scan.from_root()` → 逐檔 parse → `resolve.from_files()` 建索引 → `facts.to_graph()` → `build()`。 |
 | P2 | 逐檔 parse 時以 `for_path()` 查 registry，查不到就跳過（不是失敗）。 |
 | P3 | 讀檔用 `encoding="utf-8", errors="surrogateescape"`——讀不出 UTF-8 的位元組原樣留著，交給 parser 回報。 |
 | P4 | 解析失敗的訊息貼回對應 `file` 節點的 `properties["parse_error"]`。 |
-| P5 | resolve **依語言分組**呼叫，各用各的 resolver。 |
-| P6 | 三個計數包成 `Diagnostics` 交給 `build()`。 |
+| P5 | `to_graph()` **依語言分組**呼叫，各語言的索引與 resolver 包成 `Context` 傳入。 |
+| P6 | 各產生器回報的 `counters` 用 `Counter` 累加，連同自己算的 `parse_failures` 包成 `Diagnostics` 交給 `build()`。 |
 
 P4 是管線唯一偏離「單向」的地方：scan 產出的節點會等 parse 跑完才交給 build。不讓 build 做這件事，是因為 build 的定位是「不在乎節點從哪來」。
 
 P5 目前只有一組（Python），仍寫成迴圈——加語言時這裡不用改。
+
+**哪一種 Fact 走哪條路不在這裡**，在 `app/facts/` 的型別 → 產生器表（見 `facts.md`）。這個檔案只知道「跑一遍那張表」，**加一種 Fact 不必動 `pipeline.py`**。
+
+P6 的 `counters` key 就是 `Diagnostics` 的欄位名，所以 `pipeline.py` 不必提任何一個計數的名字（`facts.md` §8.3）；`parse_failures` 不是任何 Fact 的產物（整份檔案都沒解析出來，一筆事實都沒有），仍由這裡算。
 
 ---
 

@@ -43,6 +43,7 @@ backend/
 │   ├── parsers/
 │   ├── resolve/
 │   ├── languages/
+│   ├── facts/
 │   ├── graph/
 │   └── models/
 ├── tests/
@@ -60,7 +61,8 @@ backend/
 | `app/parsers/` | 每語言一個模組，吐出帶型別的 `Fact` | 架構 › parse |
 | `app/resolve/` | 每語言一個模組，把名字接到節點上 | 架構 › resolve |
 | `app/languages/` | `LANGUAGES` registry，以副檔名為 key 把 parser 與 resolver 配成一筆 | 架構 › 語言 registry |
-| `app/graph/` | `build.py`（組圖＋驗證）、`query.py`（查詢層介面）、`views.py`（篩邊與收合）、`store.py`（存檔讀回）、`declarations.py`（宣告 → 節點與邊） | 架構 › build、專案目標 › 儲存與查詢 |
+| `app/facts/` | 型別 → 產生器的表，把各種 `Fact` 接成節點與邊：`producers.py`（表與迴圈）、`production.py`（契約）、`declarations.py`（宣告）、`imports.py`（引用，轉交 resolve） | 架構 › facts |
+| `app/graph/` | `build.py`（組圖＋驗證）、`query.py`（查詢層介面）、`views.py`（篩邊與收合）、`store.py`（存檔讀回） | 架構 › build、專案目標 › 儲存與查詢 |
 | `app/models/` | pydantic 的 `{ nodes, edges, meta }` | 架構 › serialize |
 | `tests/` | 結構對應 `app/`，一個模組一個測試檔 | — |
 | `data/` | 分析結果 JSON。**進 `.gitignore`** | 尚無依據，見「未定之處」 |
@@ -78,6 +80,12 @@ registry 需要同時 import parser 與 resolver。若把它放進 `parsers/`，
 | `app/languages/` | 認得上面兩者，負責把它們配對 |
 
 新增一種語言時，在 `parsers/` 與 `resolve/` 各加一個模組，再到 `languages/` 加一筆——三處都是新增，沒有任何既有檔案要改。
+
+### 為什麼 `app/facts/` 也要獨立一層
+
+同一個理由的第二次套用。`app/facts/` 要同時認得 `parsers`（吃 `Fact`）、`resolve`（查名字）與 `models`（吐節點），而那三者都不認得它。
+
+放進 `app/graph/` 的話，build 那一層會因為 `ImportProducer` 而開始 import resolve，破掉「build 不在乎節點與邊從哪來」；放進 `pipeline.py` 的話，加一種 `Fact` 又要動編排檔。完整取捨見 `backend/facts.md` §8.4。
 
 ---
 
