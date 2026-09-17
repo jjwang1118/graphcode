@@ -36,6 +36,7 @@ codegraph/
 backend/
 ├── app/
 │   ├── main.py
+│   ├── pipeline.py
 │   ├── api/
 │   ├── ingest/
 │   ├── scan/
@@ -59,7 +60,7 @@ backend/
 | `app/parsers/` | 每語言一個模組，吐出帶型別的 `Fact` | 架構 › parse |
 | `app/resolve/` | 每語言一個模組，把名字接到節點上 | 架構 › resolve |
 | `app/languages/` | `LANGUAGES` registry，以副檔名為 key 把 parser 與 resolver 配成一筆 | 架構 › 語言 registry |
-| `app/graph/` | `build.py`（組圖＋驗證）、`query.py`（查詢層介面） | 架構 › build、專案目標 › 儲存與查詢 |
+| `app/graph/` | `build.py`（組圖＋驗證）、`query.py`（查詢層介面）、`views.py`（篩邊與收合）、`store.py`（存檔讀回）、`declarations.py`（宣告 → 節點與邊） | 架構 › build、專案目標 › 儲存與查詢 |
 | `app/models/` | pydantic 的 `{ nodes, edges, meta }` | 架構 › serialize |
 | `tests/` | 結構對應 `app/`，一個模組一個測試檔 | — |
 | `data/` | 分析結果 JSON。**進 `.gitignore`** | 尚無依據，見「未定之處」 |
@@ -89,8 +90,13 @@ frontend/
     │   ├── types.ts
     │   └── client.ts
     ├── graph/
-    │   └── transform.ts
-    └── components/
+    │   ├── transform.ts
+    │   ├── style.ts
+    │   ├── layouts.ts
+    │   ├── levels.ts
+    │   └── views.ts
+    ├── components/
+    └── App.tsx
 ```
 
 | 路徑 | 放什麼 | 約束 |
@@ -98,7 +104,9 @@ frontend/
 | `src/api/types.ts` | 對應後端 pydantic 的 TS 型別 | **前後端唯一契約**，改後端 schema 就必須同步改這裡 |
 | `src/api/client.ts` | fetch 封裝 | |
 | `src/graph/transform.ts` | API 形狀 → Cytoscape elements | 轉換集中在這裡，元件不直接碰 API 型別 |
+| `src/graph/` 其餘 | 樣式、排版參數、層級與視圖的選項 | 逐檔案的職責見 `docs/Frontend.md › 檔案與職責` |
 | `src/components/` | React 元件 | 畫布元件的 Cytoscape 實例放 **ref**，不放 React state |
+| `src/App.tsx` | 狀態與版面 | |
 
 ---
 

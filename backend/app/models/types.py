@@ -14,6 +14,7 @@ class NodeType(StrEnum):
     EXTERNAL_PACKAGE = "external_package"
     # schema 已定義、尚未填充
     MODULE = "module"
+    # 第二階段實際產出
     CLASS = "class"
     FUNCTION = "function"
 
@@ -22,7 +23,8 @@ class EdgeType(StrEnum):
     # 第一階段實際產出
     CONTAINS = "contains"
     IMPORTS = "imports"
-    # schema 已定義、尚未填充
+    # 第二階段實際產出
     DEFINES = "defines"
+    # schema 已定義、尚未填充
     CALLS = "calls"
     INHERITS = "inherits"

@@ -61,7 +61,7 @@ export type ExternalMode = 'full' | 'grouped' | 'hidden';
 export interface AnalyzeRequest {
   path: string;
   edge_types?: EdgeType[];
-  /** 收合到 `contains` 樹的第幾層（0＝repo，1＝它的直接子項）；省略＝不收合。 */
+  /** 收合到層級樹（`contains` ＋ `defines`）的第幾層（0＝repo）；省略＝不收合。 */
   level?: number | null;
   externals?: ExternalMode;
 }

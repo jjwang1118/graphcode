@@ -23,7 +23,7 @@ class AnalyzeRequest(BaseModel):
     path: str
     #: 省略就是整張圖；給了就只保留這些型別的邊。
     edge_types: list[EdgeType] | None = None
-    #: 收合到 `contains` 樹的第幾層（0＝repo，1＝它的直接子項）；省略＝不收合。
+    #: 收合到層級樹（`contains` ＋ `defines`）的第幾層（0＝repo）；省略＝不收合。
     level: int | None = None
     #: 外部套件怎麼呈現：全部畫 / 合成一個 / 藏起來。
     externals: ExternalMode = "full"

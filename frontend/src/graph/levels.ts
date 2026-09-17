@@ -3,9 +3,10 @@
 // 收合是**後端做的**（`app/graph/views.py`），前端只送一個數字——聚合是圖的運
 // 算，硬性規則說前端不做。
 //
-// 為什麼需要：檔案層 98 個節點、135 條邊，其中 `models/__init__.py` 一個節點就
-// 吃掉 59 條入邊，畫面上是蜘蛛網中心。收到目錄層剩 25 個節點、63 條邊，最忙的
-// 只剩 7 條——因為「所有檔案都 import models」在目錄層本來就該是一條邊。
+// 為什麼需要：不收合時 406 個節點、153 條聚合後的 imports 邊，其中
+// `models/__init__.py` 一個節點就吃掉 22 條入邊，畫面上是蜘蛛網中心。收到第 2
+// 層剩 42 個節點、21 條邊，最忙的只剩 2 條——因為「所有檔案都 import models」在
+// 目錄層本來就該是一條邊。
 
 import type { ExternalMode } from '../api/types';
 import type { LayoutId } from './layouts';
@@ -19,7 +20,7 @@ export interface LevelOption {
 // 由粗到細。
 //
 // **哪一層好看取決於專案的形狀**，不是固定的：codegraph 的程式碼埋在
-// `backend/app/…` 底下，所以第 3 層才開始有東西看（71 節點 / 63 條 imports）；
+// `backend/app/…` 底下，所以第 3 層才開始有東西看（86 節點 / 98 條 imports）；
 // 第 2 層會把整個 `backend/app` 收成一個點，內部依賴全變成節點上的計數。扁平
 // 的專案則會在第 1 層就分開。所以層數開到 5，讓人自己找甜蜜點。
 export const levels: LevelOption[] = [

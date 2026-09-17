@@ -14,9 +14,9 @@
 | [backend/graph_schema.md](backend/graph_schema.md) | serialize（橫切） | **`type` 是資料，不是結構**——加一種節點型別不改 schema 形狀，只是 `nodes` 陣列多一種 `type` 值 | `app/models/` |
 | [backend/ingest.md](backend/ingest.md) | ① ingest | **allowlist 是唯一的安全閘門**，且字串比對擋不住 `..`、同前綴、symlink 三種繞法 | `app/ingest/` |
 | [backend/scan.md](backend/scan.md) | ② scan | **走訪完，圖的 `contains` 那一半就完整了**；忽略規則是雜訊過濾，與安全無關 | `app/scan/` |
-| [backend/graph.md](backend/graph.md) | ③ build ＋ 查詢層 ＋ 視圖 ＋ 存檔 | **networkx 不外露**——查詢層一律回 `app/models/` 的型別，這是日後換圖資料庫的前提 | `app/graph/` |
 | [backend/parse.md](backend/parse.md) | ③ parse | **失敗必須是顯性的**——`ast` 遇到語法錯誤是整份檔案歸零，所以失敗要標在節點上、也要計數 | `app/parsers/` |
 | [backend/resolve.md](backend/resolve.md) | ④ resolve | **「外部」不是判斷出來的，是查不到的結果**——所以索引建錯，內部依賴會被靜靜地誤判成第三方套件 | `app/resolve/` |
+| [backend/graph.md](backend/graph.md) | ⑤ build ＋ 查詢層 ＋ 視圖 ＋ 存檔 ＋ 宣告 | **networkx 不外露**——查詢層一律回 `app/models/` 的型別，這是日後換圖資料庫的前提 | `app/graph/` |
 | [backend/api.md](backend/api.md) | 出口（橫切） | **視圖是一個欄位，不是一個端點**；錯誤訊息對外一律模糊，詳細只進日誌 | `app/api/` |
 
 `languages/` 沒有獨立文件——語言 registry 由 parse 與 resolve 共用，規格寫在 [parse.md](backend/parse.md) §2.3。
@@ -81,15 +81,17 @@
 |---|---|---|---|---|
 | 1 | ingest | [ingest.md](backend/ingest.md) | 判斷這個路徑准不准讀 | 一個可安全走訪的根目錄 |
 | 2 | scan | [scan.md](backend/scan.md) | 走訪目錄、套用忽略規則 | `file` / `directory` 節點 ＋ `contains` 邊 |
-| 3 | parse | [parse.md](backend/parse.md) | 逐檔案抽出事實（副檔名查不到 registry 就跳過） | `Import(...)` 的清單，或一句失敗原因 |
-| 4 | resolve | [resolve.md](backend/resolve.md) | 把名字接到節點上 | `imports` 邊 ＋ `external_package` 節點 |
+| 3 | parse | [parse.md](backend/parse.md) | 逐檔案抽出事實（副檔名查不到 registry 就跳過） | `Import(...)` 與 `Defines(...)` 的清單，或一句失敗原因 |
+| 4 | resolve | [resolve.md](backend/resolve.md) | 把 `Import` 的名字接到節點上 | `imports` 邊 ＋ `external_package` 節點 |
 | 5 | build | [graph.md](backend/graph.md) | 驗證、組圖、算 `meta` | `CodeGraph`（networkx 包在裡面） |
 | 6 | serialize | [graph_schema.md](backend/graph_schema.md) | 轉成跨得過邊界的形狀 | `{ nodes, edges, meta }` |
 | 7 | 回應 | [api.md](backend/api.md) | 同步回整份 `GraphDocument` | HTTP 200 ＋ JSON |
 
 **跑完第 2 步，目錄樹視圖的資料就齊了**——階段 1 刻意跳過 3 與 4，就是因為 `contains` 這一半不必碰最難的兩層。第 3、4 步補的是 `imports` 那一半。
 
-實測本專案：119 節點（file 82 / dir 21 / ext 15 / repo 1）、334 條邊（contains 103 / imports 231）。
+`Defines` 不經第 4 步——宣告自己就是節點，由 `app/graph/declarations.py` 直接接成 `class` / `function` 節點與 `defines` 邊。
+
+實測本專案：406 節點（function 253 / file 91 / class 25 / dir 21 / ext 15 / repo 1）、675 條邊（imports 285 / defines 278 / contains 112）。
 
 
 ---
@@ -113,7 +115,7 @@
 
 | 主題 | 未定的事 | 在哪份文件 |
 |---|---|---|
-| parse | Fact 要不要自己宣告它產生什麼邊（build 目前仍需 `Fact → 節點/邊` 的對應規則）。**第三種 Fact 出現時**重評 | `parse.md` §9 |
+| parse | Fact 要不要自己宣告它產生什麼邊（build 目前仍需 `Fact → 節點/邊` 的對應規則）。**重評時機已到**——5.1 讓 Fact 從一種變成兩種，plan 5.2 就是這件事 | `parse.md` §9 |
 | parse | 動態 import 完全看不到，要不要至少標記「這個檔案有動態 import」 | `parse.md` §9 |
 | resolve | 被 scan 忽略卻被 import 的目標，要不要跟真的第三方套件區分 | `resolve.md` §8 |
 | resolve | 「取最近」是啟發式，不讀 `PYTHONPATH` / `setup.py` 的真實搜尋順序 | `resolve.md` §8 |
@@ -153,4 +155,3 @@
 | `requirements.txt` 不存在（plan 0.4） | 環境無法在另一台機器重現 |
 | mypy 沒有 networkx 的型別 | `app/graph/` 裡的 networkx 呼叫不被檢查，兩處 import 掛了 `type: ignore` |
 | httpx 未安裝 | 用不了 `TestClient`，API 測試是直接呼叫 handler，**沒有真的發出 HTTP 請求** |
-| 沒有版本控制（plan 0.3） | 目前 15 個 py 檔、8 份文件都沒有歷史，改壞了沒有回頭路 |

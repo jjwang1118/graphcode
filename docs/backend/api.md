@@ -141,7 +141,7 @@ P5 目前只有一組（Python），仍寫成迴圈——加語言時這裡不�
 | 測試檔 | 筆數 | 涵蓋 |
 |---|---|---|
 | `tests/test_api_analyze.py` | 5 | A5–A9、400／500 的訊息、I2 |
-| `tests/test_pipeline.py` | 8 | P1–P6 |
+| `tests/test_pipeline.py` | 10 | P1–P6 |
 | `tests/test_smoke.py` | — | `/api/ping` |
 
 `pipeline.analyze()` 是純函式，**不啟動 FastAPI 就能測**——目前 httpx 未安裝、`TestClient` 用不了，這一點特別實際。

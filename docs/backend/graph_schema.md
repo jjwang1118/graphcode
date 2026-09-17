@@ -170,7 +170,7 @@ I5 是 CLAUDE.md「加入新型別時應該只動 parse 層」的本層對應—
 
 | 測試檔 | 筆數 | 涵蓋 |
 |---|---|---|
-| `tests/test_models_ids.py` | 9 | R1–R10 |
+| `tests/test_models_ids.py` | 16 | R1–R10 |
 | `tests/test_models_graph.py` | 6 | I1、JSON 的鍵剛好是契約上那些 |
 
 `test_json_has_exactly_the_contracted_keys` 會在 `Meta` 加欄位時失敗。**那是刻意的**：它是提醒去同步改 `frontend/src/api/types.ts` 的閘門。
