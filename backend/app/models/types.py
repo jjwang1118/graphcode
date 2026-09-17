@@ -25,6 +25,6 @@ class EdgeType(StrEnum):
     IMPORTS = "imports"
     # 第二階段實際產出
     DEFINES = "defines"
+    INHERITS = "inherits"
     # schema 已定義、尚未填充
     CALLS = "calls"
-    INHERITS = "inherits"

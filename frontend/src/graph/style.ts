@@ -23,6 +23,9 @@ export const palette = {
   edgeImports: '#7aa2e3',
   //: `defines` 跟 `contains` 一樣是層級骨架，同粗細、只換色相
   edgeDefines: '#7a6a8f',
+  //: `inherits` 不是骨架而是關係（跟 `imports` 同一類），所以取跟 class 節點
+  //: 同一個粉色系——「這條線講的是 class 之間的事」用顏色就看得出來
+  edgeInherits: '#d97fb8',
   //: 浮在圖上的面板（細節框）用的亮邊。中性灰藍，不跟任何型別的顏色重疊——
   //: 框不是圖的一部分，配色也不該被讀成「某種節點」
   borderBright: '#8fa3c4',
@@ -151,6 +154,16 @@ export const graphStyle = [
     style: {
       'line-color': palette.edgeDefines,
       'target-arrow-color': palette.edgeDefines,
+    },
+  },
+  {
+    // 繼承。跟 imports 一樣是「關係」不是骨架，所以箭頭比照 imports 放大——方
+    // 向（誰繼承誰）是這條線的重點。
+    selector: 'edge[type = "inherits"]',
+    style: {
+      'line-color': palette.edgeInherits,
+      'target-arrow-color': palette.edgeInherits,
+      'arrow-scale': 1.1,
     },
   },
   {

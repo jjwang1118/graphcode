@@ -9,7 +9,7 @@ import ast
 from collections.abc import Iterator
 from typing import Literal
 
-from app.parsers.facts import Defines, Fact, Import, ParseResult
+from app.parsers.facts import Defines, Fact, Import, Inherits, ParseResult
 
 
 class PythonParser:
@@ -55,7 +55,10 @@ def _facts(node: ast.AST, scope: str | None) -> Iterator[Fact]:
             continue
 
         yield declared
-        yield from _facts(child, _qualified(scope, declared.name))
+        qualified = _qualified(scope, declared.name)
+        if isinstance(child, ast.ClassDef):
+            yield from _inherits(child, qualified)
+        yield from _facts(child, qualified)
 
 
 def _imports(node: ast.Import | ast.ImportFrom) -> Iterator[Import]:
@@ -99,6 +102,35 @@ def _declaration(node: ast.AST, scope: str | None) -> Defines | None:
         line=node.lineno,
         overload=_is_overload(node),
     )
+
+
+def _inherits(node: ast.ClassDef, child: str) -> Iterator[Inherits]:
+    """`class Foo(Bar, Baz)` 的每個 base 各一筆。
+
+    只看 `bases`，不看 `keywords`——`metaclass=Meta` 與 `total=False` 是 keyword
+    參數，不是繼承。
+    """
+    for base in node.bases:
+        written = _written_base(base)
+        if written is None:
+            continue
+        # base 清單跨行時每個 base 有自己的行號，取它自己的比取 class 那一行準。
+        yield Inherits(child=child, base=written, line=base.lineno)
+
+
+def _written_base(node: ast.expr) -> str | None:
+    """base 運算式 → 原始碼裡寫的那個名字；寫不成名字的回 `None`。
+
+    `Generic[T]` 取 `Generic`：下標是型別參數，被繼承的是被下標的那個東西。
+    `make_base()` 這種當場算出來的 base 沒有靜態的名字可記，只能放掉——那是靜
+    態分析的邊界，不是失敗（同 `parse.md` §5 對動態 import 的處置）。
+    """
+    if isinstance(node, ast.Subscript):
+        return _written_base(node.value)
+    if isinstance(node, ast.Name | ast.Attribute):
+        # Attribute 保留完整寫法（`nx.Graph`），resolve 要靠最前面那一段查 import
+        return ast.unparse(node)
+    return None
 
 
 def _is_overload(node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef) -> bool:

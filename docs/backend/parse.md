@@ -49,12 +49,19 @@ class Parser(Protocol):
 | | `parent` | `str \| None` | 包住它的宣告的完整路徑，如 `Runner`。頂層為 `None` |
 | | `line` | `int` | `def` / `class` 那一行，不是裝飾器那一行 |
 | | `overload` | `bool` | 只是 `@overload` 的簽章，不是實作。預設 `False` |
+| `Inherits` | `child` | `str` | 子類別的完整路徑，如 `Runner`、`Outer.Inner` |
+| | `base` | `str` | **原始碼裡寫的**那個名字，如 `Bar`、`nx.Graph` |
+| | `line` | `int` | 這個 base 寫在第幾行 |
 | `ParseResult` | `facts` | `tuple[Fact, ...]` | 預設 `()` |
 | | `error` | `str \| None` | 預設 `None` |
-| `Fact` | — | `= Import \| Defines` | union 別名。之後：再加 `Calls` `Inherits` |
+| `Fact` | — | `= Import \| Defines \| Inherits` | union 別名。之後：再加 `Calls` |
 
 `Defines` 的 `name` 是裸名、`parent` 是完整路徑：節點 id 要的 `Runner.run` 由
 兩者湊得出來，而裸名正是之後解析呼叫時要查的 key，兩個欄位都有人用。
+
+`Inherits` 的 `child` 反過來是**湊好的完整路徑**：它要接的是 `Defines` 已經造好
+的那個節點，拆成兩半只是讓每個讀它的人再湊一次。`base` 則維持原樣不拆——`Bar`
+與 `nx.Graph` 指向誰，要看這個檔案 import 了什麼，那是 resolve 的事。
 
 `kind` 用字串而不是 `NodeType`：parse 一旦 import `app.models`，「Fact 不是節
 點」那條界線就破了。換型別的對照表在 `app/facts/declarations.py`。
@@ -118,7 +125,7 @@ registry 裝的是**語言知識**，對每個專案都一樣；**專案知識**
 | R16 | `parent` 是包住它的**宣告**的完整路徑。`if` / `try` / `with` 不是宣告，裡面的宣告仍屬外面那一層，不會多包一層。 |
 | R17 | `line` 取宣告本身的 `lineno`。裝飾器有自己的行號，不往回扣——跳過去要看到 `def`，不是一個裝飾器。 |
 | R18 | 裝飾器最後一段是 `overload` 的（`@overload`、`@typing.overload`）標成 `overload=True`，但**照樣回報**。要留哪一筆是 declarations 的判斷，parse 不做合併。 |
-| R19 | 宣告與 import 一起依 `line` 排序（R9），所以輸出照原始碼順序交錯。 |
+| R19 | 宣告、import 與繼承一起依 `line` 排序（R9），所以輸出照原始碼順序交錯。 |
 
 `def foo():` 產生宣告，`foo()` 不產生——後者是呼叫，屬於之後的 `Calls`。
 
@@ -126,7 +133,21 @@ registry 裝的是**語言知識**，對每個專案都一樣；**專案知識**
 閉包（`function → function`）與巢狀類別（`class → class`）都有父節點，不限於
 `file → class → function`。
 
-### 3.4 失敗處理
+### 3.4 抽繼承 · `PythonParser.parse`
+
+| # | 規則 |
+|---|---|
+| R20 | 只看 `ast.ClassDef.bases`，每個 base 一筆。`keywords`（`metaclass=`、`total=`）**不算繼承**。 |
+| R21 | `child` 是子類別的完整路徑，算法與 R16 的 `parent` 同一套。 |
+| R22 | base 運算式 → 字串：`Name` 與 `Attribute` 取原樣（`Bar`、`nx.Graph`）；`Subscript` 取被下標的那個（`Generic[T]` → `Generic`）；其餘（`make_base()`）**跳過**。 |
+| R23 | `line` 取**這個 base 自己的**行號，不是 `class` 那一行——base 清單跨行時兩者不同。 |
+
+R22 跳過運算出來的 base 與 §5 對動態 import 的處置同一套：那是靜態分析的邊界，
+不是失敗。硬記一個 `make_base()` 字串只會讓 resolve 造出不存在的節點。
+
+---
+
+### 3.5 失敗處理
 
 | # | 規則 |
 |---|---|
@@ -149,7 +170,9 @@ parse    →  Fact   「這個檔案第 11 行寫了 from app.graph import build
 resolve  →  Edge   「file:app/api/analyze.py --imports--> file:app/graph/__init__.py」
 ```
 
-**只有 `Import` 走這條路。** `Defines` 不必問任何人——它自己就是節點，由
+**`Import` 與 `Inherits` 走這條路**，但問的不是同一張表：前者問「這個模組名是
+哪個檔案」（`resolve/index.py`），後者問「這個名字是哪個宣告」
+（`resolve/names.py`）。`Defines` 不必問任何人——它自己就是節點，由
 `app/facts/declarations.py` 直接接成節點與 `defines` 邊。
 
 哪一種 Fact 走哪條路，寫在 `app/facts/` 的**型別 → 產生器表**裡（`facts.md`
@@ -221,7 +244,7 @@ F1–F3），parse 不必知道。
 
 | 測試檔 | 筆數 | 涵蓋 |
 |---|---|---|
-| `tests/test_parsers_python.py` | 21 | R4–R19、I1、I5、四種 `module`/`name` 組合、巢狀與 `@overload` |
+| `tests/test_parsers_python.py` | 29 | R4–R23、I1、I5、四種 `module`/`name` 組合、巢狀與 `@overload`、`Generic[T]` 與 `metaclass=` |
 
 實測（同一段刁鑽的程式碼，全對）：
 

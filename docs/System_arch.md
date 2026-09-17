@@ -59,9 +59,9 @@ backend/
 | `app/ingest/` | zip 解壓、本機路徑 allowlist、找出真正的根 | 架構 › ingest |
 | `app/scan/` | 走訪、忽略規則、產出 `file`/`directory` 節點與 `contains` 邊 | 架構 › scan |
 | `app/parsers/` | 每語言一個模組，吐出帶型別的 `Fact` | 架構 › parse |
-| `app/resolve/` | 每語言一個模組，把名字接到節點上 | 架構 › resolve |
+| `app/resolve/` | 每語言一個模組，把名字接到節點上；另有兩張表：`index.py`（模組名 → 檔案）、`names.py`（名字 → 宣告） | 架構 › resolve |
 | `app/languages/` | `LANGUAGES` registry，以副檔名為 key 把 parser 與 resolver 配成一筆 | 架構 › 語言 registry |
-| `app/facts/` | 型別 → 產生器的表，把各種 `Fact` 接成節點與邊：`producers.py`（表與迴圈）、`production.py`（契約）、`declarations.py`（宣告）、`imports.py`（引用，轉交 resolve） | 架構 › facts |
+| `app/facts/` | 型別 → 產生器的表，把各種 `Fact` 接成節點與邊：`producers.py`（表與迴圈）、`production.py`（契約）、`declarations.py`（宣告）、`imports.py`（引用，轉交 resolve）、`inherits.py`（繼承，查名字表） | 架構 › facts |
 | `app/graph/` | `build.py`（組圖＋驗證）、`query.py`（查詢層介面）、`views.py`（篩邊與收合）、`store.py`（存檔讀回） | 架構 › build、專案目標 › 儲存與查詢 |
 | `app/models/` | pydantic 的 `{ nodes, edges, meta }` | 架構 › serialize |
 | `tests/` | 結構對應 `app/`，一個模組一個測試檔 | — |

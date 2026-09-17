@@ -44,6 +44,11 @@ export interface Meta {
   ambiguous_imports: number;
   /** 爬出專案外、沒有產生邊的相對 import 筆數。 */
   unresolved_imports: number;
+  /**
+   * 沒有接到專案內 class 的 base 數。**大部分是 builtins 與外部套件**
+   * （`Exception`、`BaseModel`），那是預期的，不是錯誤——`inherits` 只連專案內。
+   */
+  unresolved_inherits: number;
   /** ISO 8601 字串。JSON 沒有 datetime，不會自動變成 Date。 */
   analyzed_at: string | null;
 }

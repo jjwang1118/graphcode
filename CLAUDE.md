@@ -36,13 +36,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `contains` | 邊 | 檔案系統層的包含：`repo → directory`、`repo → file`、`directory → directory`、`directory → file`。只連直接的下一層，且除 `repo` 外每個節點只有一個 `contains` 父節點 — 這是「篩 `contains` 剛好得到一棵樹」的來源 |
 | `imports` | 邊 | 檔案對檔案或對外部套件的依賴，方向是「誰依賴誰」 |
 
-**第二階段實際產出**（plan 5.1／5.3）：
+**第二階段實際產出**（plan 5.1／5.3／5.4）：
 
 | 型別 | | 簡述 |
 |---|---|---|
 | `class` | 節點 | 類別宣告 |
 | `function` | 節點 | 函式或方法宣告。`def foo():` 產生節點，`foo()` 不產生 |
 | `defines` | 邊 | 程式碼層的宣告包含：**外層宣告 → 內層宣告**，`file` 算最外層。`file → class`、`file → function`（頂層函式）、`class → function`（方法）都是這條規則的實例；巢狀宣告則產生 `function → function`、`class → class`。與 `contains` 分開是為了保留「這是宣告」的語意，代價是**沿層級展開時兩種邊都要吃** |
+| `inherits` | 邊 | 類別繼承，`class → class`。**只連專案內**——base 是 builtin 或外部套件時不產生邊，只計數，因為 `ext:` 節點不是 class |
 
 **schema 已定義、尚未填充** — 現在就要能表達，之後才實作：
 
@@ -50,7 +51,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---|---|---|
 | `module` | 節點 | 可被 import 的單位。多數情況與 `file` 一對一，但 Python 的 `__init__.py` 會讓一個 `directory` 也成為 module — 兩者不等價，所以分開 |
 | `calls` | 邊 | 函式呼叫，`function → function`。被呼叫 n 次就是 n 條邊，收合到上層時聚合成一條帶權重的邊 |
-| `inherits` | 邊 | 類別繼承或介面實作，`class → class` |
 
 加入新型別時應該**只動 parse 層**，外加在 `app/facts/` 的表上註冊一筆。serialize 與前端把型別當資料處理，不該為了多一種型別而改結構；若某次新增型別逼得它們跟著改，那是模型設計有問題，先講出來。（`Fact → 節點/邊` 的對應規則有自己的一層，不在 build 裡，見「架構 › 後端管線 › facts」。）
 

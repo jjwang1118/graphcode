@@ -19,7 +19,7 @@ from app.graph.build import Diagnostics
 from app.languages import Language, for_path
 from app.models import Edge, Node, NodeType, make_id
 from app.parsers import Fact
-from app.resolve import from_files
+from app.resolve import from_facts, from_files
 from app.scan import from_root
 
 
@@ -36,9 +36,13 @@ def analyze(root: Path) -> CodeGraph:
     # 依語言分組：名稱解析規則是 per-language，不能拿 Python 的規則去解 TS 的
     # import。目前只有一組，但寫成迴圈，加語言時這裡不用改。
     for language, facts in parsed.facts.items():
+        # 兩張表都在這裡建好才進 Context：一張是「模組名 → 檔案」（吃 scan 的檔
+        # 案清單），一張是「名字 → 宣告」（吃這個語言的全部事實，自己挑它要的
+        # 型別）。產生器只查表，不自己建表，彼此也就不必互相認識。
+        names = from_facts(facts, index, language.resolver)
         # 哪一種事實走哪條路寫在 app/facts/ 的表裡，這裡只負責把它跑一遍——
         # **加一種 Fact 不必動這個檔案**。
-        produced = to_graph(facts, Context(index=index, language=language))
+        produced = to_graph(facts, Context(index=index, language=language, names=names))
         nodes.extend(produced.nodes)
         edges.extend(produced.edges)
         counts.update(produced.counters)

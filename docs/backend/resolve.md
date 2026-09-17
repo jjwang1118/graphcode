@@ -8,6 +8,15 @@
 
 把 parser 給的**字串**接到圖上的**節點**，角色相當於 linker：`Import(module='app.graph')` 進來，`file:backend/app/graph/__init__.py` 出去。
 
+兩張表，問的問題不同：
+
+| 表 | 程式碼 | 回答 | 誰在問 |
+|---|---|---|---|
+| 模組索引 | `index.py` | 這個**模組名**是哪個檔案 | `Import` |
+| 名字表 | `names.py` | 這個**名字**是哪個宣告 | `Inherits`（之後還有 `Calls`） |
+
+兩者同一個模式：由 resolve 建、以參數傳入、parse 不必知道它存在。
+
 | 做 | 不做 |
 |---|---|
 | 把模組名接到節點 id | 讀檔案內容（parse 的事） |
@@ -26,6 +35,7 @@
 | 名稱 | 簽章 | 說明 |
 |---|---|---|
 | `from_files` | `(files: Sequence[str]) -> ModuleIndex` | 從 scan 的檔案清單建索引。`files` 是相對於 repo 根的路徑 |
+| `from_facts` | `(facts: Mapping[str, Sequence[Fact]], index: ModuleIndex, resolver: Resolver) -> NameIndex` | 從 parse 的事實建名字表。吃**整袋沒分型別的事實**，自己挑 `Defines` 與 `Import`——呼叫端因此不必提任何 Fact 型別 |
 | `to_edges` | `(facts: Mapping[str, Sequence[Import]], index: ModuleIndex, resolver: Resolver) -> ResolveResult` | `facts` 以**來源檔案的節點 id** 為 key。**只吃 `Import`**——宣告不經 resolve，分流在 `app/facts/` 的表（見 `facts.md`），呼叫端是 `ImportProducer` |
 
 ### 2.2 型別
@@ -40,6 +50,13 @@
 | | `edges` | `tuple[Edge, ...]` | 只有 `imports` |
 | | `unresolved` | `int` | 沒有產生邊的筆數 |
 | | `ambiguous` | `int` | 從多個候選裡挑出來的筆數 |
+| `Declaration` | `file` | `str` | 宣告所在檔案的 `file:` 節點 id |
+| | `qualified` | `str` | 檔案內的完整路徑，如 `Runner.run` |
+| | `kind` | `str` | parse 用的字串種類："class" / "function" |
+| `Imported` | `module` | `str` | 目標模組的節點 id（`file:` 或 `ext:`） |
+| | `member` | `str \| None` | 從那個模組裡取出的原名。整包 `import x` 為 `None` |
+| `NameIndex` | `declared` | `Mapping[str, Mapping[str, Declaration]]` | 檔案 id → 完整路徑 → 宣告 |
+| | `imported` | `Mapping[str, Mapping[str, Imported]]` | 檔案 id → 本地名 → 來源 |
 
 全部為 frozen dataclass。
 
@@ -49,10 +66,16 @@
 |---|---|---|
 | `ModuleIndex.lookup` | `(module: str, importer_id: str) -> Resolution \| None` | 絕對 import 用。查不到回 `None` |
 | `ModuleIndex.at_path` | `(path: str) -> str \| None` | 相對 import 用。回節點 id |
+| `NameIndex.lookup` | `(file_id: str, written: str) -> Declaration \| None` | 在這個檔案裡，這個名字指向哪個宣告。查不到回 `None` |
 | `Resolver`（Protocol） | `target(fact: Import, importer_id: str, index: ModuleIndex) -> Resolution \| None` | 每個語言一個實作 |
 | `PythonResolver` | 實作 `Resolver` | 由語言 registry 以副檔名取出 |
 
-`ModuleIndex` 是**專案知識**，一律以參數傳入，不得做成可變的全域狀態。
+`ModuleIndex` 與 `NameIndex` 都是**專案知識**，一律以參數傳入，不得做成可變的全域狀態。
+
+**`Resolver` 沒有為繼承長出第二個方法。** 「`Bar` 從哪個檔案來」就是解本檔那一
+筆已經存在的 `Import`，所以 `from_facts` 直接呼叫 `resolver.target()`——相對
+import、`__init__.py`、先窄後寬那些 per-language 規則一條都不必重寫。新增語言仍
+然只是 registry 加一筆。
 
 ---
 
@@ -105,6 +128,36 @@ R14 的目的是**可重現**，不是猜得準：同一個專案分析兩次必
 | R17 | 只連 `import` 指名的那個目標，**不連沿路的 package**。`import a.b.c` 只產生一條指向 `a.b.c` 的邊。 |
 | R18 | 走訪順序為 `sorted(facts)`，邊的順序因此固定。 |
 | R19 | `external_package` 節點依 id 去重，同一個套件只產生一個節點，輸出時依 id 排序。 |
+
+---
+
+### 3.6 名字表的建立 · `from_facts`
+
+| # | 規則 |
+|---|---|
+| N1 | 每個檔案登記兩組：自己的**宣告**（key 是完整路徑，如 `Outer.Inner`）與 **import 進來的名字**（key 是本地名）。 |
+| N2 | import 的本地名取 `alias` → `name` → `module`（整包 `import a.b.c` 登記 `a.b.c`，不是 `a`）。 |
+| N3 | import 的目標走 `resolver.target()`，與 `imports` 邊用同一段程式碼；解不出來的那一筆不登記。 |
+| N4 | 同一個名字被登記兩次時**後面的贏**，跟 Python 自己一樣（後定義的蓋掉前面的）。 |
+
+### 3.7 名字表的查法 · `lookup`
+
+查表順序就是 Python 自己的名字解析規則，少一層都會連錯：
+
+| # | 規則 |
+|---|---|
+| N5 | ① 先查本檔宣告，完整路徑直接比對——`Outer.Inner` 這種查得到。 |
+| N6 | ② 再查本檔 import 進來的名字。點狀名取**最長的前綴**當來源（`nx.Graph` 取 `nx`，`a.b.Foo` 取 `a.b`），剩下那一段去目標檔案的宣告裡找；沒有點的則用 import 時的原名（`from x import Bar as B`，寫 `B` 要找的是 `Bar`）。 |
+| N7 | ③ 兩者都沒有就回 `None`。**沒有全域搜尋**。 |
+
+**N7 是這張表最重要的一條。** 一個名字沒 import 進來就不在這個檔案的作用域裡，
+跨檔案去找同名的東西會連出一堆假邊——同 §9.1 的那句「外部不是判斷出來的，是查
+不到的結果」。
+
+**這一版只到檔案層級**：本檔的宣告全部算看得到，不分函式內外，也不處理遮蔽。代
+價是**巢狀類別以裸名被繼承時查不到**（`class Inner(AntiAtlasView)` 寫在
+`Outer` 裡面，而 `AntiAtlasView` 也是 `Outer` 的成員），實測 networkx 有 2 筆。
+作用域感知是 plan 5.5，表的形狀不必為它改。
 
 ---
 
@@ -169,6 +222,7 @@ R14 的目的是**可重現**，不是猜得準：同一個專案分析兩次必
 |---|---|---|
 | `tests/test_resolve_index.py` | 9 | R1–R4、R13–R14、`at_path` |
 | `tests/test_resolve_python.py` | 18 | R5–R12、R15–R19、`unresolved` / `ambiguous` 計數 |
+| `tests/test_resolve_names.py` | 10 | N1–N7，含「另一個檔案有同名的 class 也不算」與「裸名查不到巢狀宣告」 |
 
 準確度本身**沒辦法自動驗證**（沒有標準答案可比對）。`ambiguous` 與 `unresolved` 是唯一拿得到的間接指標。
 

@@ -2,7 +2,7 @@
 
 對應程式碼 `backend/app/facts/`。職責的位置定義在 CLAUDE.md › 架構 › facts。
 
-這一層有四個模組：`production.py`（產生器的契約）、`producers.py`（型別 → 產生器的表與套用它的迴圈）、`declarations.py`（宣告 → 節點與邊）、`imports.py`（引用 → 交給 resolve）。
+這一層有五個模組：`production.py`（產生器的契約）、`producers.py`（型別 → 產生器的表與套用它的迴圈）、`declarations.py`（宣告 → 節點與邊）、`imports.py`（引用 → 交給 resolve）、`inherits.py`（繼承 → 邊）。
 
 ---
 
@@ -14,12 +14,13 @@
 |---|---|
 | 依 `type(fact)` 分堆、查表、合併結果 | 決定管線有幾段、誰先誰後（`pipeline.py` 的事） |
 | 宣告 → `class` / `function` 節點 ＋ `defines` 邊 | 名稱解析（resolve 的事） |
+| 查到的宣告 → `inherits` 邊 | 建名字表（resolve 的事，表由 `Context` 帶進來） |
 | 把 resolve 的結果換成產生器的形狀 | 驗證邊的兩端、算 `meta`（build 的事） |
 | 定義產生器拿得到哪些背景知識（`Context`） | 讀檔、走訪目錄（scan 與呼叫端的事） |
 
 > **加一種 Fact ＝ 表加一筆 ＋ 寫一個產生器。** `pipeline.py` 與 `build.py` 都不必動。
 
-這句話是這一層存在的全部理由。分流曾經是 `pipeline.py` 裡誠實寫死的兩段，`Inherits`（5.4）與 `Calls`（5.6）一來就會變成四段。
+這句話是這一層存在的全部理由。分流曾經是 `pipeline.py` 裡誠實寫死的兩段；`Inherits`（5.4）進來時**那個檔案一行都沒改**，`Calls`（5.6）也會是同樣的走法。
 
 ---
 
@@ -29,13 +30,15 @@
 
 | 名稱 | 形狀 |
 |---|---|
-| `Context` | frozen dataclass：`index: ModuleIndex`、`language: Language` |
+| `Context` | frozen dataclass：`index: ModuleIndex`、`language: Language`、`names: NameIndex` |
 | `Production` | frozen dataclass：`nodes: tuple[Node, ...] = ()`、`edges: tuple[Edge, ...] = ()`、`counters: Mapping[str, int] = {}` |
 | `Producer` | Protocol：`produce(facts: Mapping[str, Sequence[Any]], context: Context) -> Production` |
 
 `facts` 以**來源檔案的節點 id** 為 key——fact 自己不知道它從哪個檔案來。
 
-`Context` 裝的是產生器可能要用到的**專案知識**（有哪些檔案）與**語言知識**（這個語言的名字怎麼解析），兩者都以參數傳入，不做成可變的全域狀態（同 `parse.md` §2.3）。
+`Context` 裝的是產生器可能要用到的**專案知識**（有哪些檔案、有哪些宣告）與**語言知識**（這個語言的名字怎麼解析），全部以參數傳入，不做成可變的全域狀態（同 `parse.md` §2.3）。
+
+`names` 雖然是宣告事實的產物，**卻不是別的產生器的輸出**：它由 resolve 從同一份事實建好再放進 `Context`，所以 `to_graph` 仍然是平的，產生器彼此互不相識——§9 預告的走法就是這個。
 
 `Producer` 的元素型別是 `Any`：表是異質的，各產生器在自己的簽章上寫清楚它吃 `Defines` 還是 `Import`。
 
@@ -43,7 +46,7 @@
 
 | 名稱 | 簽章 |
 |---|---|
-| `PRODUCERS` | `dict[type, Producer]` = `{Defines: DeclarationProducer(), Import: ImportProducer()}` |
+| `PRODUCERS` | `dict[type, Producer]` = `{Defines: DeclarationProducer(), Import: ImportProducer(), Inherits: InheritsProducer()}` |
 | `to_graph` | `(facts: Mapping[str, Sequence[Fact]], context: Context, producers: Mapping[type, Producer] = PRODUCERS) -> Production` |
 | `UnknownFactError` | `Exception` |
 
@@ -67,6 +70,16 @@
 | `ImportProducer` | `produce(facts: Mapping[str, Sequence[Import]], context: Context) -> Production` |
 
 薄殼：呼叫 `resolve.to_edges(facts, context.index, context.language.resolver)`，把 `ResolveResult` 的 `ambiguous` / `unresolved` 換成 `counters`。**名稱解析的演算法全部在 `app/resolve/`**，見 `resolve.md`。
+
+### 2.5 繼承產生器 · `inherits.py`
+
+| 名稱 | 簽章 |
+|---|---|
+| `InheritsProducer` | `produce(facts: Mapping[str, Sequence[Inherits]], context: Context) -> Production` |
+
+同樣是薄殼：查 `context.names`，查到的接成邊。查表的演算法在 `resolve/names.py`（§3.6、§3.7），這裡只管邊長什麼樣。
+
+**只回邊，不回節點**——兩端都是 `DeclarationProducer` 從同一批 `Defines` 事實產出來的 `class` 節點。這也是為什麼「解不到的 base」不能記在子類別節點的 `properties` 上：一個節點只能有一個產生器，兩個都產就會撞 id（`graph.md` B1），所以那筆資訊只剩計數。
 
 ---
 
@@ -119,6 +132,17 @@
 | F7 | 原樣轉交 `resolve.to_edges()`，不改它的輸入也不改它的輸出。 |
 | F8 | `counters` 恆有兩個 key：`ambiguous_imports`、`unresolved_imports`，即使是 0。 |
 
+### 3.4 繼承 → 邊 · `InheritsProducer`
+
+| # | 規則 |
+|---|---|
+| H1 | 每一筆 `Inherits` 查一次 `context.names.lookup(檔案, base)`。 |
+| H2 | 查到的**必須是 `class`**；查不到、或查到的是函式，都不產生邊。繼承只能是 class → class。 |
+| H3 | 邊的 `properties` 有兩個：`base`（原始碼寫的樣子）與 `line`。target 的 id 是解析出來的結果，兩個擺在一起才看得出接對沒有。 |
+| H4 | 沒有產生邊的筆數計進 `unresolved_inherits`，`counters` 恆有這個 key，即使是 0。 |
+
+**H4 那個數字裡大部分是 builtins 與外部套件**（`Exception`、`BaseModel`），那是預期的，不是錯誤——實測本專案 13 筆全部如此。它與 `unresolved_imports` 的「接不到目標」性質不同，三分類（專案內／確定外部／真的不知道）是 plan 5.7 的事。
+
 ---
 
 ## 4. 產出的資料
@@ -128,6 +152,7 @@
 | `class` / `function` 節點 | `DeclarationProducer` | `properties` 有 `line`，被 D4 合併時多一個 `redefined_at` |
 | `defines` 邊 | `DeclarationProducer` | `properties` 恆空（D6） |
 | `imports` 邊、`external_package` 節點 | `ImportProducer` | 形狀見 `resolve.md` §4 |
+| `inherits` 邊 | `InheritsProducer` | `properties` 有 `base` 與 `line`（H3）。**不產生節點** |
 | `counters` | 各產生器 | **key 就是 `Diagnostics` 的欄位名**，見 §8.3 |
 
 產生器**同時回節點與邊**，不是只回邊：`Import` 對不到專案內的檔案時要順手造出 `external_package` 節點，只回邊的話那條邊會指向不存在的節點，被 `graph.md` B2 擋下來。
@@ -165,6 +190,7 @@
 |---|---|---|
 | `tests/test_facts_producers.py` | 6 | F1–F8、I1–I3 |
 | `tests/test_facts_declarations.py` | 12 | D1–D6 |
+| `tests/test_facts_inherits.py` | 7 | H1–H4、跨檔案與巢狀的 id 形狀 |
 
 `test_facts_producers.py` 的第一條是**完成條件本身**：測試裡自己定義一個 `app/` 完全不認識的 Fact 型別與它的產生器，用 `to_graph(facts, context, producers={Mentions: MentionProducer()})` 跑一次就出得了節點與邊——`pipeline.py` 與 `build.py` 一行都沒改。
 
@@ -242,5 +268,5 @@ CLAUDE.md 與 `parse.md` §9 原本寫的是這個做法，**實作時發現做�
 | 項目 | 缺什麼 | 重新評估的時機 |
 |---|---|---|
 | `counters` 的名字沒有型別檢查 | 產生器吐出 `Diagnostics` 沒有的 key 時，要到 `pipeline.py` 組 `Diagnostics` 才炸。改成 enum 或 `TypedDict` 都能檢查，但也把這一層綁回 `Diagnostics` | 計數種類變多、或真的打錯過一次時 |
-| 產生器之間的相依 | `Calls`（5.6）要先有 5.5 的「名字 → 宣告」表，而那張表是 `Defines` 的產物——屆時 `CallProducer` 需要看到 `DeclarationProducer` 的結果。現在的 `to_graph` 是平的，各堆互不相干 | 5.5／5.6 開工時。預設走法是把表放進 `Context`，不是讓產生器互相呼叫 |
+| 產生器之間的相依 | ~~預告的走法~~**已經驗證過**：5.4 的 `InheritsProducer` 要用「名字 → 宣告」表，做法是由 resolve 從同一份事實建好、放進 `Context`，`to_graph` 仍然是平的。`Calls`（5.6）照同一條路，但它還要作用域感知（5.5） | 5.6 開工時只剩「表夠不夠用」要評估，走法不必再討論 |
 | 一種 Fact 對多個產生器 | 表是一對一。若某種 Fact 之後要同時產生兩類東西，得改成一對多 | 真的出現時 |

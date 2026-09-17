@@ -63,15 +63,25 @@ const WEBGL = (() => {
 })();
 
 // 函式庫的 link 型別只保證有 source / target，我們額外掛的欄位得自己認。
-function isImport(link: object): boolean {
-  return (link as { type?: string }).type === 'imports';
+function typeOf(link: object): string | undefined {
+  return (link as { type?: string }).type;
 }
 
-/** 層級骨架的兩種邊各有顏色，其餘（imports）另外處理。 */
-function skeletonColor(link: object): string {
-  return (link as { type?: string }).type === 'defines'
-    ? palette.edgeDefines
-    : palette.edge;
+/** 關係（依賴、繼承）比骨架（contains、defines）粗，而且要畫箭頭。 */
+function isRelation(link: object): boolean {
+  const type = typeOf(link);
+  return type === 'imports' || type === 'inherits';
+}
+
+/** 每種邊的顏色。查不到的是 `contains`，用骨架色。 */
+const LINK_COLOR: Record<string, string> = {
+  imports: palette.edgeImports,
+  defines: palette.edgeDefines,
+  inherits: palette.edgeInherits,
+};
+
+function linkColor(link: object): string {
+  return LINK_COLOR[typeOf(link) ?? ''] ?? palette.edge;
 }
 
 /** 這條線聚合了幾筆。`transform.ts` 算好的，沒有就當一筆。 */
@@ -164,15 +174,15 @@ export function Graph3D({ graph, spacing }: Props) {
           return text;
         })
         .linkColor((link) => {
-          const own = isImport(link) ? palette.edgeImports : skeletonColor(link);
+          const own = linkColor(link);
           const lit = focus.current;
           if (!lit) return own;
           const [source, target] = endsOf(link);
           return lit.has(source) && lit.has(target) ? own : DIM_LINK;
         })
-        .linkWidth((link) => (isImport(link) ? 0.6 : 0.3))
+        .linkWidth((link) => (isRelation(link) ? 0.6 : 0.3))
         .linkOpacity(0.55)
-        .linkDirectionalArrowLength((link) => (isImport(link) ? 3 : 0))
+        .linkDirectionalArrowLength((link) => (isRelation(link) ? 3 : 0))
         .linkDirectionalArrowRelPos(1)
         // 線上標「這條線代表幾筆」。門檻與 2D 同一條：count > 1 才標，否則每
         // 條線都掛一個 1。extend 是為了保留原本那條線，精靈只是加在它旁邊。

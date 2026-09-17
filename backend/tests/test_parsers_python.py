@@ -1,6 +1,6 @@
 from textwrap import dedent
 
-from app.parsers import Defines, Fact, Import, PythonParser
+from app.parsers import Defines, Fact, Import, Inherits, PythonParser
 
 
 def parse(source: str) -> tuple[Fact, ...]:
@@ -37,7 +37,7 @@ def test_from_import_splits_into_module_and_name() -> None:
 
 
 def test_parenthesised_import_across_lines_yields_every_name() -> None:
-    facts = parse(
+    facts = imports(
         """
         from foo import (bar,
                          baz)
@@ -221,3 +221,70 @@ def test_declarations_and_imports_come_out_in_source_order() -> None:
     )
 
     assert [fact.line for fact in facts] == [2, 4, 6]
+
+
+# --- 繼承（R20–R23） -----------------------------------------------------------
+
+
+def bases(source: str) -> tuple[Inherits, ...]:
+    return tuple(fact for fact in parse(source) if isinstance(fact, Inherits))
+
+
+def test_each_base_gets_its_own_fact() -> None:
+    assert bases("class Foo(Bar, Baz): ...") == (
+        Inherits(child="Foo", base="Bar", line=1),
+        Inherits(child="Foo", base="Baz", line=1),
+    )
+
+
+def test_a_class_with_no_bases_produces_nothing() -> None:
+    assert bases("class Foo: ...") == ()
+
+
+def test_the_child_is_the_full_path_so_it_matches_the_node_id() -> None:
+    facts = bases(
+        """
+        class Outer:
+            class Inner(Base): ...
+        """
+    )
+
+    assert facts == (Inherits(child="Outer.Inner", base="Base", line=3),)
+
+
+def test_a_dotted_base_keeps_the_way_it_was_written() -> None:
+    # resolve 要靠最前面那一段查 import，所以不能在這裡就拆掉。
+    assert bases("class G(nx.Graph): ...") == (
+        Inherits(child="G", base="nx.Graph", line=1),
+    )
+
+
+def test_a_subscripted_base_records_the_thing_being_subscripted() -> None:
+    # 下標是型別參數，被繼承的是 Generic 本身。
+    assert bases("class Box(Generic[T]): ...") == (
+        Inherits(child="Box", base="Generic", line=1),
+    )
+
+
+def test_keywords_are_not_bases() -> None:
+    assert bases("class Foo(Bar, metaclass=Meta, total=False): ...") == (
+        Inherits(child="Foo", base="Bar", line=1),
+    )
+
+
+def test_a_base_computed_at_runtime_has_no_name_to_record() -> None:
+    # 靜態分析的邊界，不是失敗——同 parse.md §5 對動態 import 的處置。
+    assert bases("class Foo(make_base()): ...") == ()
+
+
+def test_each_base_carries_its_own_line() -> None:
+    facts = bases(
+        """
+        class Foo(
+            Alpha,
+            Beta,
+        ): ...
+        """
+    )
+
+    assert [(fact.base, fact.line) for fact in facts] == [("Alpha", 3), ("Beta", 4)]

@@ -97,11 +97,11 @@ A7 的順序不可對調：`collapse()` 要靠 `contains` 邊算層級，先篩�
 
 | # | 規則 |
 |---|---|
-| P1 | 依序呼叫 `scan.from_root()` → 逐檔 parse → `resolve.from_files()` 建索引 → `facts.to_graph()` → `build()`。 |
+| P1 | 依序呼叫 `scan.from_root()` → 逐檔 parse → `resolve.from_files()` / `resolve.from_facts()` 建兩張表 → `facts.to_graph()` → `build()`。 |
 | P2 | 逐檔 parse 時以 `for_path()` 查 registry，查不到就跳過（不是失敗）。 |
 | P3 | 讀檔用 `encoding="utf-8", errors="surrogateescape"`——讀不出 UTF-8 的位元組原樣留著，交給 parser 回報。 |
 | P4 | 解析失敗的訊息貼回對應 `file` 節點的 `properties["parse_error"]`。 |
-| P5 | `to_graph()` **依語言分組**呼叫，各語言的索引與 resolver 包成 `Context` 傳入。 |
+| P5 | `to_graph()` **依語言分組**呼叫，兩張表（`from_files()` 的模組索引、`from_facts()` 的名字表）與該語言包成 `Context` 傳入。 |
 | P6 | 各產生器回報的 `counters` 用 `Counter` 累加，連同自己算的 `parse_failures` 包成 `Diagnostics` 交給 `build()`。 |
 
 P4 是管線唯一偏離「單向」的地方：scan 產出的節點會等 parse 跑完才交給 build。不讓 build 做這件事，是因為 build 的定位是「不在乎節點從哪來」。

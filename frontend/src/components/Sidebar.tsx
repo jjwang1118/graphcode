@@ -216,6 +216,12 @@ export function Sidebar({
             label="imports"
             note="依賴"
           />
+          <LineLegend
+            color={palette.edgeInherits}
+            thickness={2}
+            label="inherits"
+            note="繼承"
+          />
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <span
               style={{

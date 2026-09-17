@@ -38,6 +38,10 @@ class Meta(BaseModel):
     ambiguous_imports: int = 0
     #: 爬出專案外、沒有產生邊的相對 import 筆數
     unresolved_imports: int = 0
+    #: 沒有接到專案內 class 的 base 數。**大部分是 builtins 與外部套件**
+    #: （`Exception`、`BaseModel`），那是預期的，不是錯誤——`inherits` 只連專案
+    #: 內。三分類（專案內／確定外部／真的不知道）留給 plan 5.7
+    unresolved_inherits: int = 0
     analyzed_at: datetime | None = None
 
 

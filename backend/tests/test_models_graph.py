@@ -50,6 +50,7 @@ def test_json_has_exactly_the_contracted_keys() -> None:
         "parse_failures",
         "ambiguous_imports",
         "unresolved_imports",
+        "unresolved_inherits",
         "analyzed_at",
     }
 

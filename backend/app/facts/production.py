@@ -15,7 +15,7 @@ from typing import Any, Protocol
 
 from app.languages import Language
 from app.models import Edge, Node
-from app.resolve import ModuleIndex
+from app.resolve import ModuleIndex, NameIndex
 
 
 @dataclass(frozen=True)
@@ -23,10 +23,16 @@ class Context:
     """產生器手上能有的全部背景知識。
 
     不給 `facts` 以外的東西：產生器看得到誰，決定了它可能依賴誰。
+
+    兩張表都是唯讀的查詢介面，**不是別的產生器的輸出**：`names` 雖然是宣告事實
+    的產物，但它由 resolve 從同一份事實建好再傳進來，產生器之間仍然互不相識
+    （`facts.md` §9 預告的走法）。
     """
 
     index: ModuleIndex
     language: Language
+    #: 名字 → 宣告。`Inherits` 要靠它把 `class Foo(Bar)` 的 `Bar` 接到節點
+    names: NameIndex
 
 
 @dataclass(frozen=True)

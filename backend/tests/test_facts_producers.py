@@ -13,7 +13,7 @@ from app.facts import Context, Producer, Production, UnknownFactError, to_graph
 from app.languages import LANGUAGES
 from app.models import Edge, EdgeType, Node, NodeType
 from app.parsers import Defines, Fact, Import
-from app.resolve import from_files
+from app.resolve import NameIndex, from_files
 
 FILE = "file:main.py"
 
@@ -23,6 +23,7 @@ def context() -> Context:
     return Context(
         index=from_files(["main.py", "pkg/helper.py"]),
         language=LANGUAGES[".py"],
+        names=NameIndex(declared={}, imported={}),
     )
 
 

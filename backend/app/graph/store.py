@@ -27,5 +27,6 @@ def load(path: Path) -> CodeGraph:
             parse_failures=document.meta.parse_failures,
             ambiguous_imports=document.meta.ambiguous_imports,
             unresolved_imports=document.meta.unresolved_imports,
+            unresolved_inherits=document.meta.unresolved_inherits,
         ),
     )

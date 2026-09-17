@@ -32,7 +32,7 @@
 | 名稱 | 簽章 |
 |---|---|
 | `build` | `(nodes: Sequence[Node], edges: Sequence[Edge], analyzed_at: datetime \| None = None, diagnostics: Diagnostics \| None = None) -> CodeGraph` |
-| `Diagnostics` | frozen dataclass：`parse_failures: int = 0`、`ambiguous_imports: int = 0`、`unresolved_imports: int = 0` |
+| `Diagnostics` | frozen dataclass：`parse_failures: int = 0`、`ambiguous_imports: int = 0`、`unresolved_imports: int = 0`、`unresolved_inherits: int = 0` |
 | `BuildError` | `Exception` |
 
 ### 2.2 查詢層 · `query.py`
@@ -87,7 +87,7 @@
 | M2 | `cycles` | **只看 `imports` 子圖**，用 `nx.simple_cycles` |
 | M3 | `cycles` 的每一圈 | 旋轉成從 id 最小的節點開始，外層再排序 |
 | M4 | `isolated_nodes` | **恆為空**，定義未定（見 §9） |
-| M5 | `parse_failures` / `ambiguous_imports` / `unresolved_imports` | **不算，照抄** `Diagnostics` |
+| M5 | `parse_failures` / `ambiguous_imports` / `unresolved_imports` / `unresolved_inherits` | **不算，照抄** `Diagnostics` |
 | M6 | `analyzed_at` | 參數給了就用它，否則取當下的 UTC 時間 |
 
 M2 只看 `imports` 是因為循環依賴是 imports 的性質，`contains` 是樹、不可能有環。
@@ -154,7 +154,7 @@ CodeGraph → save(path) → JSON 檔 → load(path) → CodeGraph
 | S1 | 存檔內容是 `document()` 的 JSON，縮排 2，UTF-8。 |
 | S2 | `load()` 讀回後**重新走 `build()`**，檔案裡的圖若不合法就在這裡擋下來。 |
 | S3 | `load()` 把檔案裡的 `analyzed_at` 傳回 `build()`，否則讀檔會被記成一次新的分析。 |
-| S4 | `load()` 把三個計數包成 `Diagnostics` 傳回去，否則讀一次就歸零。 |
+| S4 | `load()` 把四個計數包成 `Diagnostics` 傳回去，否則讀一次就歸零。 |
 | S5 | `cycles` 等其餘 `meta` 讀回時**重算**——它們是衍生資訊，重算才能保證與節點邊的內容一致。 |
 
 ---

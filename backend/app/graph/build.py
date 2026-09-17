@@ -27,6 +27,7 @@ class Diagnostics:
     parse_failures: int = 0
     ambiguous_imports: int = 0
     unresolved_imports: int = 0
+    unresolved_inherits: int = 0
 
 
 def build(
@@ -91,6 +92,7 @@ def _meta(
         parse_failures=counts.parse_failures,
         ambiguous_imports=counts.ambiguous_imports,
         unresolved_imports=counts.unresolved_imports,
+        unresolved_inherits=counts.unresolved_inherits,
         analyzed_at=analyzed_at or datetime.now(UTC),
     )
 

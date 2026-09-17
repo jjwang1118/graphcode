@@ -16,8 +16,9 @@ from app.models import Edge, EdgeType, Node, NodeType, make_id
 from app.models.ids import PREFIX
 from app.parsers import Defines
 
-#: parse 用字串講種類（它不認識 app.models），在這裡換回型別。
-_NODE_TYPE = {"class": NodeType.CLASS, "function": NodeType.FUNCTION}
+#: parse 用字串講種類（它不認識 app.models），在這裡換回型別。這一層是唯一的
+#: 出處，`inherits.py` 也用這一份——兩邊各抄一份就會有同進同出的風險。
+NODE_TYPE = {"class": NodeType.CLASS, "function": NodeType.FUNCTION}
 
 
 class DeclarationProducer:
@@ -33,7 +34,7 @@ def to_nodes(facts: Mapping[str, Sequence[Defines]]) -> Production:
     edges: list[Edge] = []
 
     for file_id in sorted(facts):
-        path = _path_of(file_id)
+        path = path_of(file_id)
         declared = facts[file_id]
         # 完整路徑 → 種類。父節點的 id 要知道父是 class 還是 function，而 parse
         # 保證父一定先出現。同名的 class 與 def 撞在一起時後者勝，跟 Python 自
@@ -50,7 +51,7 @@ def to_nodes(facts: Mapping[str, Sequence[Defines]]) -> Production:
             nodes.append(
                 Node(
                     id=node_id,
-                    type=_NODE_TYPE[kept.kind],
+                    type=NODE_TYPE[kept.kind],
                     label=kept.name,
                     properties=_properties(kept, shadowed),
                 )
@@ -97,14 +98,14 @@ def _properties(kept: Defines, shadowed: Sequence[int]) -> dict[str, Any]:
 
 
 def _id_of(path: str, fact: Defines) -> str:
-    return make_id(_NODE_TYPE[fact.kind], path, member=_qualified(fact))
+    return make_id(NODE_TYPE[fact.kind], path, member=_qualified(fact))
 
 
 def _parent_id(path: str, fact: Defines, kinds: Mapping[str, str]) -> str:
     """頂層宣告掛在檔案上，其餘掛在包住它的那個宣告上。"""
     if fact.parent is None:
         return make_id(NodeType.FILE, path)
-    return make_id(_NODE_TYPE[kinds[fact.parent]], path, member=fact.parent)
+    return make_id(NODE_TYPE[kinds[fact.parent]], path, member=fact.parent)
 
 
 def _qualified(fact: Defines) -> str:
@@ -112,7 +113,7 @@ def _qualified(fact: Defines) -> str:
     return fact.name if fact.parent is None else f"{fact.parent}.{fact.name}"
 
 
-def _path_of(file_id: str) -> str:
+def path_of(file_id: str) -> str:
     """`file:app/graph/build.py` → `app/graph/build.py`。
 
     facts 是以 `file` 節點 id 為 key 交進來的，而 `make_id()` 要的是路徑。

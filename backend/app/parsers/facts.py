@@ -80,8 +80,31 @@ class Defines:
     overload: bool = False
 
 
-#: parse 產出的事實。之後：Import | Defines | Calls | Inherits
-Fact = Import | Defines
+@dataclass(frozen=True)
+class Inherits:
+    """一條繼承：`class Foo(Bar)` 的 `Bar`。
+
+    `base` 是**原始碼裡寫的字串**，不是解析過的目標——`Bar`、`nx.Graph` 都原樣
+    記著。那個名字指向誰要看這個檔案宣告了什麼、import 了什麼，是 resolve 的事
+    （`app/resolve/names.py`）。
+
+    `child` 是子類別的完整路徑（`Runner`、`Outer.Inner`），跟 `Defines` 湊出節
+    點 id 的方式一致——邊的來源端要接到那個 class 節點。
+
+    `Generic[T]` 這種只記 `Generic`：下標是型別參數，被繼承的是被下標的那個東
+    西。`metaclass=` 是 keyword 參數不是 base，不在這裡。
+    """
+
+    #: 子類別的完整路徑，如 ``Runner``、``Outer.Inner``
+    child: str
+    #: 原始碼裡寫的 base，如 ``Bar``、``nx.Graph``
+    base: str
+    #: 這個 base 寫在第幾行。base 清單跨行時各自有各自的行號
+    line: int
+
+
+#: parse 產出的事實。之後：再加 `Calls`
+Fact = Import | Defines | Inherits
 
 
 @dataclass(frozen=True)

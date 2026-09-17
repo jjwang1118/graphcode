@@ -74,7 +74,8 @@
 |---|---|
 | `contains` `imports` | 第一階段實際產出 |
 | `defines` | **第二階段實際產出**（plan 5.1） |
-| `calls` `inherits` | schema 已定義、尚未填充 |
+| `inherits` | **第二階段實際產出**（plan 5.4） |
+| `calls` | schema 已定義、尚未填充 |
 
 用 enum 而非自由字串，是因為 CLAUDE.md › 圖模型把型別列成**封閉清單**。理由與代價見 §8.1。
 
@@ -93,9 +94,12 @@
 | `parse_failures` | `int` | `0` | parse（經 `Diagnostics` 交給 build 照抄） |
 | `ambiguous_imports` | `int` | `0` | resolve（同上） |
 | `unresolved_imports` | `int` | `0` | resolve（同上） |
+| `unresolved_inherits` | `int` | `0` | facts（同上） |
 | `analyzed_at` | `datetime \| None` | `None` | build |
 
-後三個是**準確度指標**：這張圖有多少成分是猜的、有多少東西根本沒讀到。個別是哪些看節點與邊的 `properties`（`parse_error`、`ambiguous`），見 `parse.md`、`resolve.md`。
+中間三個是**準確度指標**：這張圖有多少成分是猜的、有多少東西根本沒讀到。個別是哪些看節點與邊的 `properties`（`parse_error`、`ambiguous`），見 `parse.md`、`resolve.md`。
+
+`unresolved_inherits` **不是**同一種東西：它數的是「base 不在專案內」，而那大多是 builtins 與外部套件，屬預期而非錯誤（`facts.md` H4）。
 
 build 只是把 `Diagnostics` 抄進來——它不認識 parse 與 resolve，數字由產生問題的那一層自己算。
 
