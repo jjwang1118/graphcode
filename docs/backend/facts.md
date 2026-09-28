@@ -136,7 +136,7 @@
 
 | # | 規則 |
 |---|---|
-| H1 | 每一筆 `Inherits` 查一次 `context.names.lookup(檔案, base)`。 |
+| H1 | 每一筆 `Inherits` 查一次 `context.names.lookup(檔案, base, scope)`。`scope` 是 `child` 的上一層（`Outer.Inner` → `Outer`，頂層為 `None`）——base 在 class 所在的那一層求值。 |
 | H2 | 查到的**必須是 `class`**；查不到、或查到的是函式，都不產生邊。繼承只能是 class → class。 |
 | H3 | 邊的 `properties` 有兩個：`base`（原始碼寫的樣子）與 `line`。target 的 id 是解析出來的結果，兩個擺在一起才看得出接對沒有。 |
 | H4 | 沒有產生邊的筆數計進 `unresolved_inherits`，`counters` 恆有這個 key，即使是 0。 |
@@ -190,7 +190,7 @@
 |---|---|---|
 | `tests/test_facts_producers.py` | 6 | F1–F8、I1–I3 |
 | `tests/test_facts_declarations.py` | 12 | D1–D6 |
-| `tests/test_facts_inherits.py` | 7 | H1–H4、跨檔案與巢狀的 id 形狀 |
+| `tests/test_facts_inherits.py` | 8 | H1–H4、跨檔案與巢狀的 id 形狀、base 只宣告在外層 class 裡 |
 
 `test_facts_producers.py` 的第一條是**完成條件本身**：測試裡自己定義一個 `app/` 完全不認識的 Fact 型別與它的產生器，用 `to_graph(facts, context, producers={Mentions: MentionProducer()})` 跑一次就出得了節點與邊——`pipeline.py` 與 `build.py` 一行都沒改。
 

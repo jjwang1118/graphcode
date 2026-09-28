@@ -19,9 +19,12 @@ def index(facts: Mapping[str, Sequence[Fact]]) -> NameIndex:
 
 
 def lookup(
-    facts: Mapping[str, Sequence[Fact]], written: str, where: str = APP
+    facts: Mapping[str, Sequence[Fact]],
+    written: str,
+    where: str = APP,
+    scope: str | None = None,
 ) -> str | None:
-    found = index(facts).lookup(where, written)
+    found = index(facts).lookup(where, written, scope)
     return None if found is None else f"{found.file}::{found.qualified}#{found.kind}"
 
 
@@ -71,8 +74,65 @@ def test_a_nested_declaration_is_found_by_its_full_path() -> None:
     }
 
     assert lookup(facts, "Outer.Inner") == f"{APP}::Outer.Inner#class"
-    # 裸名查不到——那要作用域感知，是 plan 5.5 的事
+    # 裸名在頂層看不到；寫在 Outer 裡面才看得到
     assert lookup(facts, "Inner") is None
+    assert lookup(facts, "Inner", scope="Outer") == f"{APP}::Outer.Inner#class"
+
+
+# --- 作用域：由內往外（plan 5.5） -----------------------------------------------
+
+
+def test_a_closure_sees_what_its_enclosing_function_declared() -> None:
+    facts: dict[str, list[Fact]] = {
+        APP: [
+            Defines(kind="function", name="build", parent=None, line=1),
+            Defines(kind="function", name="step", parent="build", line=2),
+            Defines(kind="function", name="inner", parent="build", line=3),
+        ]
+    }
+
+    assert lookup(facts, "step", scope="build.inner") == f"{APP}::build.step#function"
+
+
+def test_a_method_does_not_see_its_own_class_members() -> None:
+    """方法裡寫 `run()` 指的是頂層的 run——class body 只對直接寫在裡面的可見。"""
+    facts: dict[str, list[Fact]] = {
+        APP: [
+            Defines(kind="function", name="run", parent=None, line=1),
+            Defines(kind="class", name="Job", parent=None, line=3),
+            Defines(kind="function", name="run", parent="Job", line=4),
+            Defines(kind="function", name="helper", parent="Job", line=6),
+        ]
+    }
+
+    assert lookup(facts, "run", scope="Job.helper") == f"{APP}::run#function"
+    # 沒有頂層可退時就是查不到，不會落到同一個 class 的方法上
+    assert lookup(facts, "helper", scope="Job.run") is None
+
+
+def test_an_inner_declaration_shadows_an_outer_one() -> None:
+    facts: dict[str, list[Fact]] = {
+        APP: [
+            Defines(kind="function", name="helper", parent=None, line=1),
+            Defines(kind="function", name="build", parent=None, line=3),
+            Defines(kind="function", name="helper", parent="build", line=4),
+        ]
+    }
+
+    assert lookup(facts, "helper", scope="build") == f"{APP}::build.helper#function"
+    assert lookup(facts, "helper") == f"{APP}::helper#function"
+
+
+def test_an_import_is_still_found_from_inside_a_function() -> None:
+    facts: dict[str, list[Fact]] = {
+        APP: [
+            Import(module="src.lib", level=0, name="Bar", alias=None, line=1),
+            Defines(kind="function", name="build", parent=None, line=3),
+        ],
+        LIB: [Defines(kind="class", name="Bar", parent=None, line=1)],
+    }
+
+    assert lookup(facts, "Bar", scope="build") == f"{LIB}::Bar#class"
 
 
 def test_a_module_bound_by_a_plain_import_is_not_a_declaration() -> None:

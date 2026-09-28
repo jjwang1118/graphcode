@@ -35,7 +35,9 @@ class InheritsProducer:
 
         for file_id in sorted(facts):
             for fact in facts[file_id]:
-                found = context.names.lookup(file_id, fact.base)
+                # base 在 class 所在的那一層求值：`Outer.Inner(Base)` 從 Outer 找起
+                scope = fact.child.rpartition(".")[0] or None
+                found = context.names.lookup(file_id, fact.base, scope)
                 if found is None or found.kind != "class":
                     # 查不到，或查到的是同名的函式——繼承只能是 class → class
                     unresolved += 1

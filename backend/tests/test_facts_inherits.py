@@ -84,6 +84,23 @@ def test_a_nested_class_hangs_off_its_full_path() -> None:
     assert edges == [("class:src/app.py::Outer.Inner", "class:src/app.py::Base")]
 
 
+def test_a_base_declared_beside_the_nested_class_is_found() -> None:
+    """`Base` 只在 Outer 裡——從子類別所在的那一層找起才查得到（plan 5.5）。"""
+    edges, unresolved = produce(
+        {
+            APP: [
+                Defines(kind="class", name="Outer", parent=None, line=1),
+                Defines(kind="class", name="Base", parent="Outer", line=2),
+                Defines(kind="class", name="Inner", parent="Outer", line=3),
+                Inherits(child="Outer.Inner", base="Base", line=3),
+            ]
+        }
+    )
+
+    assert edges == [("class:src/app.py::Outer.Inner", "class:src/app.py::Outer.Base")]
+    assert unresolved == 0
+
+
 def test_a_base_that_is_not_in_the_project_produces_no_edge() -> None:
     """builtins 與外部套件都走這條路——`inherits` 只連專案內的 class。"""
     edges, unresolved = produce(

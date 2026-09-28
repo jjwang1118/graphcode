@@ -66,7 +66,7 @@
 |---|---|---|
 | `ModuleIndex.lookup` | `(module: str, importer_id: str) -> Resolution \| None` | 絕對 import 用。查不到回 `None` |
 | `ModuleIndex.at_path` | `(path: str) -> str \| None` | 相對 import 用。回節點 id |
-| `NameIndex.lookup` | `(file_id: str, written: str) -> Declaration \| None` | 在這個檔案裡，這個名字指向哪個宣告。查不到回 `None` |
+| `NameIndex.lookup` | `(file_id: str, written: str, scope: str \| None = None) -> Declaration \| None` | 在這個檔案裡、寫在 `scope` 這個宣告裡面的這個名字，指向哪個宣告。`scope` 是完整路徑（`Outer`、`Runner.run`），頂層為 `None`。查不到回 `None` |
 | `Resolver`（Protocol） | `target(fact: Import, importer_id: str, index: ModuleIndex) -> Resolution \| None` | 每個語言一個實作 |
 | `PythonResolver` | 實作 `Resolver` | 由語言 registry 以副檔名取出 |
 
@@ -146,7 +146,8 @@ R14 的目的是**可重現**，不是猜得準：同一個專案分析兩次必
 
 | # | 規則 |
 |---|---|
-| N5 | ① 先查本檔宣告，完整路徑直接比對——`Outer.Inner` 這種查得到。 |
+| N5 | ① 先查本檔宣告，**從 `scope` 由內往外**：`scope` 為 `a.b` 時依序比對 `a.b.<寫法>`、`a.<寫法>`、`<寫法>`。每層都以完整寫法比對，所以 `Outer.Inner` 這種查得到。 |
+| N5a | 由內往外時**跳過外層的 class**，只有 `scope` 本身是 class 時例外。class body 只對直接寫在裡面的程式碼可見：巢狀類別的 base 看得到同一個 class 的成員，方法裡寫 `run()` 看不到——它指的是頂層的 `run`。跟 Python 一樣。 |
 | N6 | ② 再查本檔 import 進來的名字。點狀名取**最長的前綴**當來源（`nx.Graph` 取 `nx`，`a.b.Foo` 取 `a.b`），剩下那一段去目標檔案的宣告裡找；沒有點的則用 import 時的原名（`from x import Bar as B`，寫 `B` 要找的是 `Bar`）。 |
 | N7 | ③ 兩者都沒有就回 `None`。**沒有全域搜尋**。 |
 
@@ -154,10 +155,17 @@ R14 的目的是**可重現**，不是猜得準：同一個專案分析兩次必
 跨檔案去找同名的東西會連出一堆假邊——同 §9.1 的那句「外部不是判斷出來的，是查
 不到的結果」。
 
-**這一版只到檔案層級**：本檔的宣告全部算看得到，不分函式內外，也不處理遮蔽。代
-價是**巢狀類別以裸名被繼承時查不到**（`class Inner(AntiAtlasView)` 寫在
-`Outer` 裡面，而 `AntiAtlasView` 也是 `Outer` 的成員），實測 networkx 有 2 筆。
-作用域感知是 plan 5.5，表的形狀不必為它改。
+**作用域感知只到宣告為止**（plan 5.5）。表的形狀沒有為它改——`declared` 本來就以
+完整路徑為 key、帶著 `kind`，由內往外只是換一種查法。還看不到的兩件事：
+
+| 看不到 | 例子 | 後果 |
+|---|---|---|
+| 函式內的 import | `def f(): from x import foo` | 登記在檔案層級，整個檔案都當成看得到 `foo`。`Import` 沒帶作用域，要改 parse；留到 plan 5.6 依實測決定 |
+| 參數與變數的遮蔽 | `def f(helper): helper()` | 仍接到同名的宣告。parse 沒有抽指派與參數 |
+
+實測：networkx 的 `inherits` 由 152 變 154，多出的正是原本查不到的兩筆巢狀類別
+（`_AntiGraph.AntiAdjacencyView(AntiAtlasView)` 與測試方法裡的
+`MyGraph(Mixin)`），原本的 152 條一條未變；starlette 與本專案不變。
 
 ---
 
@@ -222,7 +230,7 @@ R14 的目的是**可重現**，不是猜得準：同一個專案分析兩次必
 |---|---|---|
 | `tests/test_resolve_index.py` | 9 | R1–R4、R13–R14、`at_path` |
 | `tests/test_resolve_python.py` | 18 | R5–R12、R15–R19、`unresolved` / `ambiguous` 計數 |
-| `tests/test_resolve_names.py` | 10 | N1–N7，含「另一個檔案有同名的 class 也不算」與「裸名查不到巢狀宣告」 |
+| `tests/test_resolve_names.py` | 14 | N1–N7，含「另一個檔案有同名的 class 也不算」、由內往外、「方法看不到自己 class 的成員」、內層遮蔽外層 |
 
 準確度本身**沒辦法自動驗證**（沒有標準答案可比對）。`ambiguous` 與 `unresolved` 是唯一拿得到的間接指標。
 

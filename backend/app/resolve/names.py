@@ -5,16 +5,20 @@
 
 查表順序就是 Python 自己的名字解析規則，少一層都會連錯：
 
-    ① 本檔宣告      class Bar: ...            → 同一個檔案裡的那個 Bar
-    ② 本檔 import    from x import Bar         → x.py 裡的那個 Bar
-    ③ 都不是         Exception、BaseModel      → builtins 或外部套件，查不到
+    ① 本檔宣告，由內往外   寫在 Outer 裡的 Base  → Outer.Base，再來才是頂層的 Base
+    ② 本檔 import         from x import Bar     → x.py 裡的那個 Bar
+    ③ 都不是              Exception、BaseModel  → builtins 或外部套件，查不到
 
 **沒有第三步的全域搜尋。** 一個名字沒 import 進來就不在這個檔案的作用域裡，跨
 檔案亂找同名的東西會連出一堆假邊——那正是 `resolve.md` §9.1 說的「外部不是判斷
 出來的，是查不到的結果」。
 
-這一版只到**檔案層級**：本檔的宣告全部算看得到，不分函式內外。作用域感知（誰
-遮住誰）是 plan 5.5 的事，表的形狀不必為它改。規則見 docs/backend/resolve.md。
+① 的「由內往外」跳過外層的 class：方法裡寫 `run()` 指的是頂層的 `run`，不是同一
+個 class 的 `run`——class body 只對直接寫在裡面的程式碼可見，跟 Python 一樣。表
+的形狀不必為此改：`declared` 本來就以完整路徑為 key、帶著 `kind`。
+
+函式內的 import 仍登記在檔案層級（Import 沒帶作用域），見 resolve.md §3.7。規則
+見 docs/backend/resolve.md。
 """
 
 from collections.abc import Iterator, Mapping, Sequence
@@ -64,18 +68,24 @@ class NameIndex:
     #: 檔案 id → 本地名 → 來源
     imported: Mapping[str, Mapping[str, Imported]]
 
-    def lookup(self, file_id: str, written: str) -> Declaration | None:
+    def lookup(
+        self, file_id: str, written: str, scope: str | None = None
+    ) -> Declaration | None:
         """在 `file_id` 這個檔案裡，`written` 這個名字指向哪個宣告。
 
         `written` 是原始碼裡寫的樣子：`Bar`、`nx.Graph`、`Outer.Inner` 都吃得
-        下。查不到回 `None`——那代表它是 builtin、外部套件，或這一版看不懂的寫
-        法，三者在這裡不分，見 docs/backend/resolve.md §3.7。
+        下。`scope` 是這個名字**寫在哪個宣告裡面**的完整路徑（`Outer`、
+        `Runner.run`），頂層為 `None`。查不到回 `None`——那代表它是 builtin、外
+        部套件，或這一版看不懂的寫法，三者在這裡不分，見
+        docs/backend/resolve.md §3.7。
         """
-        # ① 本檔宣告。完整路徑直接比對，所以 `Outer.Inner` 這種也查得到。
+        # ① 本檔宣告，由內往外。每一層都以完整寫法比對，所以 `Outer.Inner` 這種
+        # 也查得到。
         mine = self.declared.get(file_id, {})
-        found = mine.get(written)
-        if found is not None:
-            return found
+        for layer in _layers(scope, mine):
+            found = mine.get(written if layer is None else f"{layer}.{written}")
+            if found is not None:
+                return found
 
         # ② 本檔 import 進來的名字。
         here = self.imported.get(file_id, {})
@@ -132,6 +142,21 @@ def from_facts(
         imported[file_id] = here
 
     return NameIndex(declared=declared, imported=imported)
+
+
+def _layers(scope: str | None, mine: Mapping[str, Declaration]) -> Iterator[str | None]:
+    """`a.b.c` → "a.b.c"、"a.b"、"a"、None（頂層）。
+
+    **外層的 class 跳過**，只有最內層那一個例外：寫在 class body 裡的程式碼（巢
+    狀類別的 base）看得到同一個 class 的成員，寫在方法裡的看不到。
+    """
+    layer = scope
+    while layer is not None:
+        found = mine.get(layer)
+        if layer == scope or found is None or found.kind != "class":
+            yield layer
+        layer = layer.rpartition(".")[0] or None
+    yield None
 
 
 def _splits(written: str) -> Iterator[tuple[str, str]]:
