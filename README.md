@@ -165,3 +165,33 @@ npm run build
 ```
 
 所有查詢都必須經過查詢層介面（`app/graph/query.py`），API 與前端**不直接操作 networkx 物件** —— 這層隔離是為了日後換成圖資料庫（Neo4j / Kuzu）時不必動上層。
+
+---
+
+## 示範
+
+以 UniversalNeuralCrackingMachines 為例。
+
+### 2D 與 3D
+
+同一張圖的兩種畫布，側欄一鍵切換。
+
+![2D 與 3D](docs/images/1-2d-3d.gif)
+
+### 由粗到細
+
+層級從「整個專案」一路切到「不收合」，節點從 2 個長到 114 個。
+
+![由粗到細](docs/images/2-levels.gif)
+
+### 展開一個 class
+
+第 2 層的 `Trainer` 是一顆點；到第 3 層，它的方法都出現在旁邊。
+
+![展開一個 class](docs/images/3-collapse.gif)
+
+### 影響範圍
+
+點一個函式，呼叫它的一層一層亮起來 —— 改它會波及誰。
+
+![影響範圍](docs/images/4-impact.gif)
