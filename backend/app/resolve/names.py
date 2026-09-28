@@ -6,7 +6,8 @@
 查表順序就是 Python 自己的名字解析規則，少一層都會連錯：
 
     ① 本檔宣告，由內往外   寫在 Outer 裡的 Base  → Outer.Base，再來才是頂層的 Base
-    ② 本檔 import         from x import Bar     → x.py 裡的那個 Bar
+    ② 本檔 import         from x import Bar     → x.py 裡的那個 Bar；x.py 只是轉
+                                                出別人的，就沿它的 import 往下追
     ③ 都不是              Exception、BaseModel  → builtins 或外部套件，查不到
 
 **沒有第三步的全域搜尋。** 一個名字沒 import 進來就不在這個檔案的作用域裡，跨
@@ -98,7 +99,30 @@ class NameIndex:
             if wanted is None:
                 # 綁到的是模組本身，不是宣告
                 return None
-            return self.declared.get(source.module, {}).get(wanted)
+            return self._declared_in(source.module, wanted)
+        return None
+
+    def _declared_in(self, module: str, name: str) -> Declaration | None:
+        """`module` 裡的 `name`；那裡沒有宣告就沿**它自己的 import** 往下追。
+
+        `from app.graph import collapse` 找到的是 `app/graph/__init__.py`，而那
+        裡只有一行 `from .views import collapse`——宣告在 `views.py`。Python 取
+        `app.graph.collapse` 拿到的就是那個被轉出來的東西，所以照著追下去才對。
+        不限 `__init__.py`：任何檔案轉出別人的名字都是同一回事。
+
+        互相指向（A 說在 B、B 說在 A）時，走過的 (檔案, 名字) 不再走，查不到。
+        """
+        seen: set[tuple[str, str]] = set()
+        while (module, name) not in seen:
+            seen.add((module, name))
+            found = self.declared.get(module, {}).get(name)
+            if found is not None:
+                return found
+            source = self.imported.get(module, {}).get(name)
+            if source is None or source.member is None:
+                # 沒轉出這個名字，或轉出的是整個模組——都不是宣告
+                return None
+            module, name = source.module, source.member
         return None
 
 

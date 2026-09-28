@@ -183,3 +183,63 @@ def test_the_later_binding_wins_like_python_itself() -> None:
     }
 
     assert lookup(facts, "Bar") == f"{APP}::Bar#function"
+
+
+# --- 轉出：沿目標檔案自己的 import 往下追（plan 5.6） --------------------------
+
+PKG = "file:src/pkg/__init__.py"
+THING = "file:src/pkg/thing.py"
+
+
+def test_a_name_passed_on_by_an_init_is_followed_to_its_declaration() -> None:
+    """`from src.pkg import collapse`，而 pkg/__init__.py 只是轉出 thing.py 的。"""
+    facts: dict[str, list[Fact]] = {
+        APP: [Import(module="src.pkg", level=0, name="collapse", alias=None, line=1)],
+        PKG: [Import(module="thing", level=1, name="collapse", alias=None, line=1)],
+        THING: [Defines(kind="function", name="collapse", parent=None, line=1)],
+    }
+
+    assert lookup(facts, "collapse") == f"{THING}::collapse#function"
+
+
+def test_a_renamed_pass_on_is_followed_by_the_original_name() -> None:
+    facts: dict[str, list[Fact]] = {
+        APP: [Import(module="src.pkg", level=0, name="fold", alias=None, line=1)],
+        PKG: [Import(module="thing", level=1, name="collapse", alias="fold", line=1)],
+        THING: [Defines(kind="function", name="collapse", parent=None, line=1)],
+    }
+
+    assert lookup(facts, "fold") == f"{THING}::collapse#function"
+
+
+def test_passing_on_works_through_several_files_and_not_only_inits() -> None:
+    # app → lib（一般檔案）→ pkg/__init__ → thing
+    facts: dict[str, list[Fact]] = {
+        APP: [Import(module="src.lib", level=0, name="collapse", alias=None, line=1)],
+        LIB: [Import(module="src.pkg", level=0, name="collapse", alias=None, line=1)],
+        PKG: [Import(module="thing", level=1, name="collapse", alias=None, line=1)],
+        THING: [Defines(kind="function", name="collapse", parent=None, line=1)],
+    }
+
+    assert lookup(facts, "collapse") == f"{THING}::collapse#function"
+
+
+def test_files_pointing_at_each_other_stop_instead_of_looping() -> None:
+    facts: dict[str, list[Fact]] = {
+        APP: [Import(module="src.lib", level=0, name="ghost", alias=None, line=1)],
+        LIB: [Import(module="src.pkg", level=0, name="ghost", alias=None, line=1)],
+        PKG: [Import(module="src.lib", level=0, name="ghost", alias=None, line=1)],
+    }
+
+    assert lookup(facts, "ghost") is None
+
+
+def test_a_dotted_name_through_a_package_follows_the_pass_on() -> None:
+    # `import src.pkg` 之後寫 `src.pkg.collapse()`
+    facts: dict[str, list[Fact]] = {
+        APP: [Import(module="src.pkg", level=0, name=None, alias=None, line=1)],
+        PKG: [Import(module="thing", level=1, name="collapse", alias=None, line=1)],
+        THING: [Defines(kind="function", name="collapse", parent=None, line=1)],
+    }
+
+    assert lookup(facts, "src.pkg.collapse") == f"{THING}::collapse#function"

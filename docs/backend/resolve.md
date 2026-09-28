@@ -149,7 +149,13 @@ R14 的目的是**可重現**，不是猜得準：同一個專案分析兩次必
 | N5 | ① 先查本檔宣告，**從 `scope` 由內往外**：`scope` 為 `a.b` 時依序比對 `a.b.<寫法>`、`a.<寫法>`、`<寫法>`。每層都以完整寫法比對，所以 `Outer.Inner` 這種查得到。 |
 | N5a | 由內往外時**跳過外層的 class**，只有 `scope` 本身是 class 時例外。class body 只對直接寫在裡面的程式碼可見：巢狀類別的 base 看得到同一個 class 的成員，方法裡寫 `run()` 看不到——它指的是頂層的 `run`。跟 Python 一樣。 |
 | N6 | ② 再查本檔 import 進來的名字。點狀名取**最長的前綴**當來源（`nx.Graph` 取 `nx`，`a.b.Foo` 取 `a.b`），剩下那一段去目標檔案的宣告裡找；沒有點的則用 import 時的原名（`from x import Bar as B`，寫 `B` 要找的是 `Bar`）。 |
+| N6a | N6 在目標檔案裡找不到宣告時，**沿目標檔案自己的 import 往下追**：`from app.graph import collapse` 找到 `app/graph/__init__.py`，那裡只有 `from .views import collapse`，就照著去 `views.py` 找。可以連續追好幾個檔案，**不限 `__init__.py`**。走過的（檔案, 名字）不再走，互相指向時停下、查不到。轉出的若是整個模組（`from . import views`），不是宣告，查不到。 |
 | N7 | ③ 兩者都沒有就回 `None`。**沒有全域搜尋**。 |
+
+**N6a 不是全域搜尋**：它走的每一步都是某個檔案**真的寫了**的 import，只是把
+Python 取 `app.graph.collapse` 時實際做的事照做一遍。少了它，擴散在每個套件的
+`__init__.py` 就斷掉——本專案 `calls` 邊 339 → 468，starlette 與 networkx 不
+變（它們很少經由 `__init__.py` 轉出）。
 
 **N7 是這張表最重要的一條。** 一個名字沒 import 進來就不在這個檔案的作用域裡，
 跨檔案去找同名的東西會連出一堆假邊——同 §9.1 的那句「外部不是判斷出來的，是查
@@ -230,7 +236,7 @@ R14 的目的是**可重現**，不是猜得準：同一個專案分析兩次必
 |---|---|---|
 | `tests/test_resolve_index.py` | 9 | R1–R4、R13–R14、`at_path` |
 | `tests/test_resolve_python.py` | 18 | R5–R12、R15–R19、`unresolved` / `ambiguous` 計數 |
-| `tests/test_resolve_names.py` | 14 | N1–N7，含「另一個檔案有同名的 class 也不算」、由內往外、「方法看不到自己 class 的成員」、內層遮蔽外層 |
+| `tests/test_resolve_names.py` | 19 | N1–N7，含「另一個檔案有同名的 class 也不算」、由內往外、「方法看不到自己 class 的成員」、內層遮蔽外層、N6a 的轉出（改名、跨多個檔案、互相指向） |
 
 準確度本身**沒辦法自動驗證**（沒有標準答案可比對）。`ambiguous` 與 `unresolved` 是唯一拿得到的間接指標。
 

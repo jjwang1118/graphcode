@@ -163,11 +163,11 @@
 
 **K5 那個數字比 `unresolved_inherits` 雜**：builtins（`print`、`len`）與外部套件（`json.loads`）是預期的；`變數.foo()`、`self.a.b()` 與繼承來的方法才是真的不知道。plan 5.7 先採「只畫解得出來的、其餘計數」，三分類仍留在那裡。
 
-實測（2026-09-28）：
+實測（2026-09-28，含 resolve.md N6a 的轉出）：
 
 | 專案 | `calls` 邊 | `unresolved_calls` |
 |---|---|---|
-| 本專案 | 311 | 745 |
+| 本專案 | 468 | 688 |
 | starlette | 200 | 1317 |
 | networkx | 2892 | 46113 |
 
