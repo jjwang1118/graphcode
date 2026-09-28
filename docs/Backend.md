@@ -156,6 +156,5 @@
 
 | 缺口 | 影響 |
 |---|---|
-| `requirements.txt` 不存在（plan 0.4） | 環境無法在另一台機器重現 |
 | mypy 沒有 networkx 的型別 | `app/graph/` 裡的 networkx 呼叫不被檢查，兩處 import 掛了 `type: ignore` |
-| httpx 未安裝 | 用不了 `TestClient`，API 測試是直接呼叫 handler，**沒有真的發出 HTTP 請求** |
+| API 測試沒改用 `TestClient` | httpx 已裝（`requirements.txt`），但 API 測試仍是直接呼叫 handler，**沒有真的發出 HTTP 請求** |

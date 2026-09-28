@@ -16,6 +16,7 @@ codegraph/
 ├── frontend/
 ├── docs/
 ├── CLAUDE.md
+├── requirements.txt
 └── .gitignore
 ```
 
@@ -25,8 +26,9 @@ codegraph/
 | `frontend/` | Vite + React + TS 的網站 |
 | `docs/` | 設計與規劃文件 |
 | `CLAUDE.md` | 互動守則、專案目標、圖模型、架構原則 |
+| `requirements.txt` | 後端的 Python 套件與釘住的版本，在根目錄 `pip install -r requirements.txt` |
 
-**為什麼不把後端攤在根目錄** — 根目錄若直接放 `app/`、`tests/`、`requirements.txt`，後端的內部結構會跟 `docs/`、`frontend/` 混在同一層，且 `tests/` 是誰的測試變得不明確。分成兩個子目錄後，「前後端分離、各自獨立啟動」這件事從目錄結構就看得出來。
+**為什麼不把後端攤在根目錄** — 根目錄若直接放 `app/`、`tests/`，後端的內部結構會跟 `docs/`、`frontend/` 混在同一層，且 `tests/` 是誰的測試變得不明確。分成兩個子目錄後，「前後端分離、各自獨立啟動」這件事從目錄結構就看得出來。
 
 ---
 
@@ -47,8 +49,7 @@ backend/
 │   ├── graph/
 │   └── models/
 ├── tests/
-├── data/
-└── requirements.txt
+└── data/
 ```
 
 | 路徑 | 放什麼 | 對應 CLAUDE.md |

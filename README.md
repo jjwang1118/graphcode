@@ -56,10 +56,8 @@
 ```bash
 conda create -n codegraph python=3.11
 conda activate codegraph
-pip install fastapi uvicorn pydantic networkx pytest ruff mypy
+pip install -r requirements.txt
 ```
-
-> **`backend/requirements.txt` 還不存在。** 要收哪些套件、釘什麼版本尚未拍板（`docs/plan.md` 的 0.4），所以上面是手動安裝。建立之後改成 `pip install -r backend/requirements.txt`。
 
 前端：
 
