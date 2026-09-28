@@ -11,19 +11,20 @@
 from collections import Counter
 from collections.abc import Mapping, Sequence
 
+from app.facts.calls import CallsProducer
 from app.facts.declarations import DeclarationProducer
 from app.facts.imports import ImportProducer
 from app.facts.inherits import InheritsProducer
 from app.facts.production import Context, Producer, Production
 from app.models import Edge, Node
-from app.parsers import Defines, Fact, Import, Inherits
+from app.parsers import Calls, Defines, Fact, Import, Inherits
 
 
 class UnknownFactError(Exception):
     """有一種 Fact 沒有人接。"""
 
 
-#: 型別 → 誰負責把它接上圖。之後：`Calls`（5.6）
+#: 型別 → 誰負責把它接上圖。
 #:
 #: 順序就是產生器被呼叫的順序，也就是輸出裡節點與邊的順序（F4）。新的掛在最
 #: 後，既有的相對順序不動。
@@ -31,6 +32,7 @@ PRODUCERS: dict[type, Producer] = {
     Defines: DeclarationProducer(),
     Import: ImportProducer(),
     Inherits: InheritsProducer(),
+    Calls: CallsProducer(),
 }
 
 

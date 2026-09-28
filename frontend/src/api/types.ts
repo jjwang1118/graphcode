@@ -49,6 +49,11 @@ export interface Meta {
    * （`Exception`、`BaseModel`），那是預期的，不是錯誤——`inherits` 只連專案內。
    */
   unresolved_inherits: number;
+  /**
+   * 沒有接到專案內函式的呼叫數：builtins、外部套件，以及 `變數.foo()` 這種沒有
+   * 型別資訊就解不掉的。前兩者是預期的，只有第三種是真的不知道。
+   */
+  unresolved_calls: number;
   /** ISO 8601 字串。JSON 沒有 datetime，不會自動變成 Date。 */
   analyzed_at: string | null;
 }

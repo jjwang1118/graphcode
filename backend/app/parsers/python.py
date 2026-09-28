@@ -6,10 +6,11 @@
 """
 
 import ast
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 from typing import Literal
 
-from app.parsers.facts import Defines, Fact, Import, Inherits, ParseResult
+from app.parsers.facts import Calls, Defines, Fact, Import, Inherits, ParseResult
 
 
 class PythonParser:
@@ -26,8 +27,23 @@ class PythonParser:
         # 依行號排序，讓輸出跟著原始碼的順序走（走訪順序與原始碼無關）。排序
         # 穩定，所以同一行內的多個名字維持原順序。
         return ParseResult(
-            facts=tuple(sorted(_facts(tree, None), key=lambda fact: fact.line))
+            facts=tuple(sorted(_facts(tree, _TOP), key=lambda fact: fact.line))
         )
+
+
+@dataclass(frozen=True)
+class _Where:
+    """走訪時的位置：在哪個宣告裡面、那是不是函式、`self` 指誰。"""
+
+    #: 最內層宣告的完整路徑，頂層為 None
+    scope: str | None
+    #: 最內層宣告是不是函式——只有函式裡的呼叫記成 `Calls`
+    in_function: bool
+    #: （`self` 的名字, 它所屬 class 的完整路徑）；不在方法裡為 None
+    receiver: tuple[str, str] | None
+
+
+_TOP = _Where(scope=None, in_function=False, receiver=None)
 
 
 def _describe(error: SyntaxError) -> str:
@@ -36,29 +52,100 @@ def _describe(error: SyntaxError) -> str:
     return f"{error.msg} (line {error.lineno})"
 
 
-def _facts(node: ast.AST, scope: str | None) -> Iterator[Fact]:
+def _facts(node: ast.AST, where: _Where) -> Iterator[Fact]:
     """走整棵樹，同時記住現在在哪個宣告裡面。
 
     不用 `ast.walk` 是因為它是廣度優先，拿不到「誰包住誰」。走整棵樹這件事不
     變：`if TYPE_CHECKING:` 內與函式內的 import 與宣告都算。
     """
-    for child in ast.iter_child_nodes(node):
+    yield from _each(ast.iter_child_nodes(node), where)
+
+
+def _each(children: Iterable[ast.AST], where: _Where) -> Iterator[Fact]:
+    for child in children:
         if isinstance(child, ast.Import | ast.ImportFrom):
             yield from _imports(child)
             continue
 
-        declared = _declaration(child, scope)
-        if declared is None:
+        if isinstance(child, ast.Call) and where.in_function:
+            called = _call(child, where)
+            if called is not None:
+                yield called
+            # 不 continue：參數裡的呼叫（`f(g())`）與 `a().b()` 的 `a()` 也要抓
+
+        declared = _declaration(child, where.scope)
+        if declared is None or not isinstance(
+            child, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
+        ):
             # 不是宣告——繼續往下找，作用域不變。`if TYPE_CHECKING:` 或 `try:`
             # 裡面的宣告仍然屬於外面那一層，不會多包一層。
-            yield from _facts(child, scope)
+            yield from _facts(child, where)
             continue
 
         yield declared
-        qualified = _qualified(scope, declared.name)
+        qualified = _qualified(where.scope, declared.name)
         if isinstance(child, ast.ClassDef):
             yield from _inherits(child, qualified)
-        yield from _facts(child, qualified)
+
+        # 只有 body 屬於新的一層。裝飾器、base、參數預設值與註解是在**外面**
+        # 求值的——`@cache` 不是這個函式呼叫的。
+        body = {id(statement) for statement in child.body}
+        outside = [part for part in ast.iter_child_nodes(child) if id(part) not in body]
+        yield from _each(outside, where)
+        yield from _each(child.body, _inside(child, qualified, where))
+
+
+def _inside(
+    node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef,
+    qualified: str,
+    outer: _Where,
+) -> _Where:
+    """進到 `node` 的 body 之後的位置。"""
+    if isinstance(node, ast.ClassDef):
+        return _Where(scope=qualified, in_function=False, receiver=None)
+
+    params = [arg.arg for arg in node.args.posonlyargs + node.args.args]
+    in_class = outer.scope is not None and not outer.in_function
+    if in_class and params and not _decorated(node, "staticmethod"):
+        # 方法的第一個參數就是 self（或 classmethod 的 cls），叫什麼名字都一樣
+        assert outer.scope is not None
+        receiver: tuple[str, str] | None = (params[0], outer.scope)
+    elif outer.receiver is not None and outer.receiver[0] not in params:
+        # 方法裡的閉包看得到外面那個 self，除非自己的參數把它遮住
+        receiver = outer.receiver
+    else:
+        receiver = None
+    return _Where(scope=qualified, in_function=True, receiver=receiver)
+
+
+def _call(node: ast.Call, where: _Where) -> Calls | None:
+    """`foo()`、`mod.foo()`、`self.foo()` → 一筆 `Calls`；寫不成名字的回 None。"""
+    assert where.scope is not None
+    written = _dotted(node.func)
+    if written is None:
+        # `a().b()`、`x[0]()`、`(lambda: 1)()`：被呼叫的東西是當場算出來的，沒有
+        # 靜態的名字可查——同 `_written_base` 對 `make_base()` 的處置
+        return None
+
+    head, _, attr = written.partition(".")
+    if where.receiver is not None and head == where.receiver[0] and "." not in attr:
+        return Calls(
+            caller=where.scope,
+            callee=attr,
+            line=node.lineno,
+            self_class=where.receiver[1],
+        )
+    return Calls(caller=where.scope, callee=written, line=node.lineno)
+
+
+def _dotted(node: ast.expr) -> str | None:
+    """`foo`、`a.b.foo` → 原樣；中間夾著呼叫或下標的回 None。"""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        head = _dotted(node.value)
+        return None if head is None else f"{head}.{node.attr}"
+    return None
 
 
 def _imports(node: ast.Import | ast.ImportFrom) -> Iterator[Import]:
@@ -139,8 +226,14 @@ def _is_overload(node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef) ->
     只看字面的最後一段：parser 沒有全域視野，不知道那個名字實際指向誰。誤判的
     代價是同名的兩筆挑錯一筆，不會產生錯的邊。
     """
+    return _decorated(node, "overload")
+
+
+def _decorated(
+    node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef, name: str
+) -> bool:
     return any(
-        ast.unparse(decorator).split("(")[0].rsplit(".", 1)[-1] == "overload"
+        ast.unparse(decorator).split("(")[0].rsplit(".", 1)[-1] == name
         for decorator in node.decorator_list
     )
 

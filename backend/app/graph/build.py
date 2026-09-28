@@ -28,6 +28,7 @@ class Diagnostics:
     ambiguous_imports: int = 0
     unresolved_imports: int = 0
     unresolved_inherits: int = 0
+    unresolved_calls: int = 0
 
 
 def build(
@@ -93,6 +94,7 @@ def _meta(
         ambiguous_imports=counts.ambiguous_imports,
         unresolved_imports=counts.unresolved_imports,
         unresolved_inherits=counts.unresolved_inherits,
+        unresolved_calls=counts.unresolved_calls,
         analyzed_at=analyzed_at or datetime.now(UTC),
     )
 

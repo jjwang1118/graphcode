@@ -42,6 +42,10 @@ class Meta(BaseModel):
     #: （`Exception`、`BaseModel`），那是預期的，不是錯誤——`inherits` 只連專案
     #: 內。三分類（專案內／確定外部／真的不知道）留給 plan 5.7
     unresolved_inherits: int = 0
+    #: 沒有接到專案內函式的呼叫數：builtins、外部套件，以及 `變數.foo()` 這種沒
+    #: 有型別資訊就解不掉的。**前兩者是預期的**，只有第三種是真的不知道——三分類
+    #: 同樣留給 plan 5.7
+    unresolved_calls: int = 0
     analyzed_at: datetime | None = None
 
 

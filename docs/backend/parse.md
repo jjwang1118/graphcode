@@ -52,9 +52,13 @@ class Parser(Protocol):
 | `Inherits` | `child` | `str` | 子類別的完整路徑，如 `Runner`、`Outer.Inner` |
 | | `base` | `str` | **原始碼裡寫的**那個名字，如 `Bar`、`nx.Graph` |
 | | `line` | `int` | 這個 base 寫在第幾行 |
+| `Calls` | `caller` | `str` | 呼叫所在函式的完整路徑，如 `Runner.run` |
+| | `callee` | `str` | **原始碼裡寫的**被呼叫者，如 `foo`、`nx.shortest_path`；`self_class` 有值時只是屬性名，如 `step` |
+| | `line` | `int` | 這個呼叫寫在第幾行 |
+| | `self_class` | `str \| None` | `self.x()` / `cls.x()` 時，那個 `self` 所屬 class 的完整路徑。預設 `None` |
 | `ParseResult` | `facts` | `tuple[Fact, ...]` | 預設 `()` |
 | | `error` | `str \| None` | 預設 `None` |
-| `Fact` | — | `= Import \| Defines \| Inherits` | union 別名。之後：再加 `Calls` |
+| `Fact` | — | `= Import \| Defines \| Inherits \| Calls` | union 別名 |
 
 `Defines` 的 `name` 是裸名、`parent` 是完整路徑：節點 id 要的 `Runner.run` 由
 兩者湊得出來，而裸名正是之後解析呼叫時要查的 key，兩個欄位都有人用。
@@ -125,9 +129,9 @@ registry 裝的是**語言知識**，對每個專案都一樣；**專案知識**
 | R16 | `parent` 是包住它的**宣告**的完整路徑。`if` / `try` / `with` 不是宣告，裡面的宣告仍屬外面那一層，不會多包一層。 |
 | R17 | `line` 取宣告本身的 `lineno`。裝飾器有自己的行號，不往回扣——跳過去要看到 `def`，不是一個裝飾器。 |
 | R18 | 裝飾器最後一段是 `overload` 的（`@overload`、`@typing.overload`）標成 `overload=True`，但**照樣回報**。要留哪一筆是 declarations 的判斷，parse 不做合併。 |
-| R19 | 宣告、import 與繼承一起依 `line` 排序（R9），所以輸出照原始碼順序交錯。 |
+| R19 | 宣告、import、繼承與呼叫一起依 `line` 排序（R9），所以輸出照原始碼順序交錯。 |
 
-`def foo():` 產生宣告，`foo()` 不產生——後者是呼叫，屬於之後的 `Calls`。
+`def foo():` 產生宣告，`foo()` 不產生——後者是呼叫，屬於 `Calls`（§3.5）。
 
 **巢狀沒有層數上限。** CLAUDE.md 的 `defines` 是「外層宣告 → 內層宣告」，所以
 閉包（`function → function`）與巢狀類別（`class → class`）都有父節點，不限於
@@ -145,9 +149,25 @@ registry 裝的是**語言知識**，對每個專案都一樣；**專案知識**
 R22 跳過運算出來的 base 與 §5 對動態 import 的處置同一套：那是靜態分析的邊界，
 不是失敗。硬記一個 `make_base()` 字串只會讓 resolve 造出不存在的節點。
 
+### 3.5 抽呼叫 · `PythonParser.parse`（plan 5.6）
+
+| # | 規則 |
+|---|---|
+| R24 | 只記**最內層宣告是函式**的 `ast.Call`。模組層與 class body 的呼叫沒有函式可以當 `calls` 邊的來源端，不記。 |
+| R25 | 宣告只有 **body** 屬於新的一層。裝飾器、base、keyword、參數預設值與註解在**外面**求值——`@cache` 不是這個函式呼叫的，`def f(x=g())` 的 `g()` 也不是。 |
+| R26 | `callee` 取 `func` 的點狀寫法：`Name` 與全由 `Name` 串成的 `Attribute`（`foo`、`a.b.foo`）。中間夾著呼叫、下標或 lambda 的（`a().b()`、`x[0]()`）**不記**，同 R22。 |
+| R27 | 巢狀呼叫各記一筆：`f(g())` 兩筆，`a().b()` 只剩 `a` 那一筆。 |
+| R28 | 方法（最內層宣告是 class 的函式）的**第一個參數**就是 receiver，不論叫 `self`、`cls` 還是別的；`@staticmethod` 沒有 receiver。方法裡的閉包沿用外面的 receiver，除非自己的參數同名把它遮住。 |
+| R29 | `callee` 是 `<receiver>.<屬性>`（恰好兩段）時，`callee` 只記屬性名、`self_class` 記方法所屬 class 的完整路徑。`self.a.b()` 超過兩段，照原樣記在 `callee`，`self_class` 為 `None`。 |
+| R30 | `line` 取 `ast.Call` 自己的行號。 |
+
+R28 是這一節唯一「看得出 resolve 看不出」的東西：`self` 是誰寫在原始碼的巢狀
+結構裡，parse 走訪時手上就有；到了 resolve 只剩一串名字。**`self.a.b()` 不猜**：
+要知道 `self.a` 的型別，那是型別推論的領域（plan 5.6 備註）。
+
 ---
 
-### 3.5 失敗處理
+### 3.6 失敗處理
 
 | # | 規則 |
 |---|---|
@@ -170,8 +190,8 @@ parse    →  Fact   「這個檔案第 11 行寫了 from app.graph import build
 resolve  →  Edge   「file:app/api/analyze.py --imports--> file:app/graph/__init__.py」
 ```
 
-**`Import` 與 `Inherits` 走這條路**，但問的不是同一張表：前者問「這個模組名是
-哪個檔案」（`resolve/index.py`），後者問「這個名字是哪個宣告」
+**`Import`、`Inherits` 與 `Calls` 走這條路**，但問的不是同一張表：前者問「這個模
+組名是哪個檔案」（`resolve/index.py`），後兩者問「這個名字是哪個宣告」
 （`resolve/names.py`）。`Defines` 不必問任何人——它自己就是節點，由
 `app/facts/declarations.py` 直接接成節點與 `defines` 邊。
 
@@ -244,7 +264,7 @@ F1–F3），parse 不必知道。
 
 | 測試檔 | 筆數 | 涵蓋 |
 |---|---|---|
-| `tests/test_parsers_python.py` | 29 | R4–R23、I1、I5、四種 `module`/`name` 組合、巢狀與 `@overload`、`Generic[T]` 與 `metaclass=` |
+| `tests/test_parsers_python.py` | 38 | R4–R30、I1、I5、四種 `module`/`name` 組合、巢狀與 `@overload`、`Generic[T]` 與 `metaclass=`、receiver 的各種寫法 |
 
 實測（同一段刁鑽的程式碼，全對）：
 

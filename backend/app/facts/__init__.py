@@ -1,3 +1,4 @@
+from app.facts.calls import CallsProducer
 from app.facts.declarations import DeclarationProducer, to_nodes
 from app.facts.imports import ImportProducer
 from app.facts.inherits import InheritsProducer
@@ -6,6 +7,7 @@ from app.facts.production import Context, Producer, Production
 
 __all__ = [
     "PRODUCERS",
+    "CallsProducer",
     "Context",
     "DeclarationProducer",
     "ImportProducer",

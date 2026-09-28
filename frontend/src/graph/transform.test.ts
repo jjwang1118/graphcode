@@ -15,6 +15,7 @@ const empty: GraphDocument = {
     ambiguous_imports: 0,
     unresolved_imports: 0,
     unresolved_inherits: 0,
+    unresolved_calls: 0,
     analyzed_at: null,
   },
 };

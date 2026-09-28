@@ -1,6 +1,6 @@
 from textwrap import dedent
 
-from app.parsers import Defines, Fact, Import, Inherits, PythonParser
+from app.parsers import Calls, Defines, Fact, Import, Inherits, PythonParser
 
 
 def parse(source: str) -> tuple[Fact, ...]:
@@ -288,3 +288,142 @@ def test_each_base_carries_its_own_line() -> None:
     )
 
     assert [(fact.base, fact.line) for fact in facts] == [("Alpha", 3), ("Beta", 4)]
+
+
+# --- 呼叫（plan 5.6） ---------------------------------------------------------
+
+
+def calls(source: str) -> tuple[Calls, ...]:
+    return tuple(fact for fact in parse(source) if isinstance(fact, Calls))
+
+
+def test_a_call_inside_a_function_records_the_caller_and_the_written_name() -> None:
+    facts = calls(
+        """
+        def build():
+            helper()
+            nx.shortest_path()
+        """
+    )
+
+    assert facts == (
+        Calls(caller="build", callee="helper", line=3),
+        Calls(caller="build", callee="nx.shortest_path", line=4),
+    )
+
+
+def test_calls_outside_any_function_have_no_source_and_are_skipped() -> None:
+    # 模組層、class body、裝飾器、參數預設值都不在函式的 body 裡
+    facts = calls(
+        """
+        setup()
+
+        class Job:
+            attr = make()
+
+        @decorate(arg())
+        def build(x=default()):
+            pass
+        """
+    )
+
+    assert facts == ()
+
+
+def test_nested_calls_are_each_recorded() -> None:
+    facts = calls(
+        """
+        def build():
+            outer(inner())
+        """
+    )
+
+    assert [fact.callee for fact in facts] == ["outer", "inner"]
+
+
+def test_a_callee_computed_at_runtime_has_no_name_to_record() -> None:
+    # `a().b()` 只剩 `a()`；下標與 lambda 沒有名字
+    facts = calls(
+        """
+        def build():
+            a().b()
+            table[0]()
+        """
+    )
+
+    assert [fact.callee for fact in facts] == ["a"]
+
+
+def test_self_in_a_method_records_the_class_it_belongs_to() -> None:
+    facts = calls(
+        """
+        class Outer:
+            class Job:
+                def run(self):
+                    self.step()
+        """
+    )
+
+    assert facts == (
+        Calls(caller="Outer.Job.run", callee="step", line=5, self_class="Outer.Job"),
+    )
+
+
+def test_the_receiver_is_the_first_parameter_whatever_its_name() -> None:
+    facts = calls(
+        """
+        class Job:
+            @classmethod
+            def make(cls):
+                cls.create()
+
+            def run(this):
+                this.step()
+        """
+    )
+
+    assert [(fact.callee, fact.self_class) for fact in facts] == [
+        ("create", "Job"),
+        ("step", "Job"),
+    ]
+
+
+def test_a_staticmethod_has_no_receiver() -> None:
+    facts = calls(
+        """
+        class Job:
+            @staticmethod
+            def run(value):
+                value.step()
+        """
+    )
+
+    assert facts == (Calls(caller="Job.run", callee="value.step", line=5),)
+
+
+def test_a_closure_inside_a_method_still_sees_self() -> None:
+    facts = calls(
+        """
+        class Job:
+            def run(self):
+                def inner():
+                    self.step()
+        """
+    )
+
+    assert facts == (
+        Calls(caller="Job.run.inner", callee="step", line=5, self_class="Job"),
+    )
+
+
+def test_a_deeper_attribute_on_self_is_kept_as_written() -> None:
+    # `self.a.b()` 要知道 self.a 的型別才解得掉，parse 不猜
+    facts = calls(
+        """
+        class Job:
+            def run(self):
+                self.a.b()
+        """
+    )
+
+    assert facts == (Calls(caller="Job.run", callee="self.a.b", line=4),)

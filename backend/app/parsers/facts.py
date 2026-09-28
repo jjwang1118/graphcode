@@ -103,8 +103,36 @@ class Inherits:
     line: int
 
 
-#: parse 產出的事實。之後：再加 `Calls`
-Fact = Import | Defines | Inherits
+@dataclass(frozen=True)
+class Calls:
+    """一次呼叫：寫在 `caller` 這個函式裡的 `callee(...)`。
+
+    `def foo():` 是宣告（`Defines`），`foo()` 才是這一筆。只記**寫在函式裡**的
+    呼叫——模組層與 class body 的呼叫沒有函式可以當 `calls` 邊的來源端。
+
+    `callee` 是**原始碼裡寫的字串**（`foo`、`nx.shortest_path`），指向誰是
+    resolve 的事，同 `Inherits.base`。
+
+    `self_class` 是 parse 看得出來、resolve 看不出來的那一件事：`self.run()` 的
+    `self` 是這個方法的第一個參數，而方法屬於哪個 class 寫在原始碼的巢狀結構
+    裡。這時 `callee` 只記屬性名（`run`），`self_class` 記 class 的完整路徑
+    （`Job`）——要查的就是 `Job.run`。「第一個參數是誰」是語言知識，所以留在
+    parse。
+    """
+
+    #: 呼叫所在函式的完整路徑，如 ``Runner.run``
+    caller: str
+    #: 原始碼裡寫的被呼叫者，如 ``foo``、``nx.shortest_path``；`self_class` 有值
+    #: 時只是屬性名，如 ``run``
+    callee: str
+    #: 這個呼叫寫在第幾行
+    line: int
+    #: `self.x()` / `cls.x()` 時，那個 `self` 所屬 class 的完整路徑
+    self_class: str | None = None
+
+
+#: parse 產出的事實
+Fact = Import | Defines | Inherits | Calls
 
 
 @dataclass(frozen=True)

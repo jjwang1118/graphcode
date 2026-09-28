@@ -14,13 +14,13 @@
 |---|---|
 | 依 `type(fact)` 分堆、查表、合併結果 | 決定管線有幾段、誰先誰後（`pipeline.py` 的事） |
 | 宣告 → `class` / `function` 節點 ＋ `defines` 邊 | 名稱解析（resolve 的事） |
-| 查到的宣告 → `inherits` 邊 | 建名字表（resolve 的事，表由 `Context` 帶進來） |
+| 查到的宣告 → `inherits` 邊與 `calls` 邊 | 建名字表（resolve 的事，表由 `Context` 帶進來） |
 | 把 resolve 的結果換成產生器的形狀 | 驗證邊的兩端、算 `meta`（build 的事） |
 | 定義產生器拿得到哪些背景知識（`Context`） | 讀檔、走訪目錄（scan 與呼叫端的事） |
 
 > **加一種 Fact ＝ 表加一筆 ＋ 寫一個產生器。** `pipeline.py` 與 `build.py` 都不必動。
 
-這句話是這一層存在的全部理由。分流曾經是 `pipeline.py` 裡誠實寫死的兩段；`Inherits`（5.4）進來時**那個檔案一行都沒改**，`Calls`（5.6）也會是同樣的走法。
+這句話是這一層存在的全部理由。分流曾經是 `pipeline.py` 裡誠實寫死的兩段；`Inherits`（5.4）進來時**那個檔案一行都沒改**，`Calls`（5.6）也一樣。
 
 ---
 
@@ -46,7 +46,7 @@
 
 | 名稱 | 簽章 |
 |---|---|
-| `PRODUCERS` | `dict[type, Producer]` = `{Defines: DeclarationProducer(), Import: ImportProducer(), Inherits: InheritsProducer()}` |
+| `PRODUCERS` | `dict[type, Producer]` = `{Defines: DeclarationProducer(), Import: ImportProducer(), Inherits: InheritsProducer(), Calls: CallsProducer()}` |
 | `to_graph` | `(facts: Mapping[str, Sequence[Fact]], context: Context, producers: Mapping[type, Producer] = PRODUCERS) -> Production` |
 | `UnknownFactError` | `Exception` |
 
@@ -80,6 +80,14 @@
 同樣是薄殼：查 `context.names`，查到的接成邊。查表的演算法在 `resolve/names.py`（§3.6、§3.7），這裡只管邊長什麼樣。
 
 **只回邊，不回節點**——兩端都是 `DeclarationProducer` 從同一批 `Defines` 事實產出來的 `class` 節點。這也是為什麼「解不到的 base」不能記在子類別節點的 `properties` 上：一個節點只能有一個產生器，兩個都產就會撞 id（`graph.md` B1），所以那筆資訊只剩計數。
+
+### 2.6 呼叫產生器 · `calls.py`（plan 5.6）
+
+| 名稱 | 簽章 |
+|---|---|
+| `CallsProducer` | `produce(facts: Mapping[str, Sequence[Calls]], context: Context) -> Production` |
+
+跟 `InheritsProducer` 同一個形狀：查 `context.names`，查到的接成邊，**只回邊**——兩端都是 `DeclarationProducer` 產的 `function` 節點。
 
 ---
 
@@ -143,6 +151,28 @@
 
 **H4 那個數字裡大部分是 builtins 與外部套件**（`Exception`、`BaseModel`），那是預期的，不是錯誤——實測本專案 13 筆全部如此。它與 `unresolved_imports` 的「接不到目標」性質不同，三分類（專案內／確定外部／真的不知道）是 plan 5.7 的事。
 
+### 3.5 呼叫 → 邊 · `CallsProducer`
+
+| # | 規則 |
+|---|---|
+| K1 | `self_class` 為 `None` 時查 `context.names.lookup(檔案, callee, caller)`——從呼叫所在的函式由內往外找（`resolve.md` N5）。 |
+| K2 | `self_class` 有值時直接查完整路徑 `<self_class>.<callee>`。只找這個 class 自己宣告的方法，**不往 base class 找**。 |
+| K3 | 查到 `class` 時換成它的 `<class>.__init__`（呼叫 class 就是建構它）。沒寫 `__init__` 的 class 沒有函式節點可接，不產生邊。 |
+| K4 | 最後查到的必須是 `function` 才產生邊。**一筆 fact 一條邊**，`properties` 有 `callee`（原始碼寫的樣子）與 `line`，同 resolve.md R16。 |
+| K5 | 沒有產生邊的筆數計進 `unresolved_calls`，`counters` 恆有這個 key，即使是 0。 |
+
+**K5 那個數字比 `unresolved_inherits` 雜**：builtins（`print`、`len`）與外部套件（`json.loads`）是預期的；`變數.foo()`、`self.a.b()` 與繼承來的方法才是真的不知道。plan 5.7 先採「只畫解得出來的、其餘計數」，三分類仍留在那裡。
+
+實測（2026-09-28）：
+
+| 專案 | `calls` 邊 | `unresolved_calls` |
+|---|---|---|
+| 本專案 | 311 | 745 |
+| starlette | 200 | 1317 |
+| networkx | 2892 | 46113 |
+
+networkx 的未解特別多，是因為它自己寫 `import networkx as nx`，而分析的根是套件資料夾本身——`networkx` 這個模組名對不到任何檔案，`nx.*` 全變成外部。那是分析的根選在哪的問題（`resolve.md` §9.1），不是這一層的。
+
 ---
 
 ## 4. 產出的資料
@@ -153,6 +183,7 @@
 | `defines` 邊 | `DeclarationProducer` | `properties` 恆空（D6） |
 | `imports` 邊、`external_package` 節點 | `ImportProducer` | 形狀見 `resolve.md` §4 |
 | `inherits` 邊 | `InheritsProducer` | `properties` 有 `base` 與 `line`（H3）。**不產生節點** |
+| `calls` 邊 | `CallsProducer` | `properties` 有 `callee` 與 `line`（K4）。**不產生節點** |
 | `counters` | 各產生器 | **key 就是 `Diagnostics` 的欄位名**，見 §8.3 |
 
 產生器**同時回節點與邊**，不是只回邊：`Import` 對不到專案內的檔案時要順手造出 `external_package` 節點，只回邊的話那條邊會指向不存在的節點，被 `graph.md` B2 擋下來。
@@ -191,6 +222,7 @@
 | `tests/test_facts_producers.py` | 6 | F1–F8、I1–I3 |
 | `tests/test_facts_declarations.py` | 12 | D1–D6 |
 | `tests/test_facts_inherits.py` | 8 | H1–H4、跨檔案與巢狀的 id 形狀、base 只宣告在外層 class 裡 |
+| `tests/test_facts_calls.py` | 8 | K1–K5、閉包、`self`、建構子、builtins 與外部不連 |
 
 `test_facts_producers.py` 的第一條是**完成條件本身**：測試裡自己定義一個 `app/` 完全不認識的 Fact 型別與它的產生器，用 `to_graph(facts, context, producers={Mentions: MentionProducer()})` 跑一次就出得了節點與邊——`pipeline.py` 與 `build.py` 一行都沒改。
 
