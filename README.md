@@ -28,20 +28,20 @@
 
 `resolve` 不是管線上的一站，而是 `facts` 呼叫的一層 —— 送一個名字去查，拿回接好的邊。
 
-| 元件 | 做什麼 | 現況 |
-|---|---|---|
-| **ingest** `app/ingest/` | 交出一個**可以安全走訪的根目錄**。後續階段一律只看到一個目錄，不知道 source 原本是什麼 | 只有本機路徑（必須落在 allowlist 內）。**zip 上傳未實作** |
-| **scan** `app/scan/` | 走訪目錄、套用忽略規則，產出 `file` / `directory` 節點與 `contains` 邊，並決定哪些檔案要送去 parse | 跑完時圖的 `contains` 那一半就完整了。進圖但不 parse 是正常的 |
-| **parse** `app/parsers/` | 逐檔案抽出帶型別的 **Fact**。只看單一檔案、不做路徑解析 | **只有 Python**（標準庫 `ast`）。四種 Fact：`Import`（用到誰）、`Defines`（有什麼）、`Inherits`（繼承誰）與 `Calls`（呼叫誰） |
-| **語言 registry** `app/languages/` | 以副檔名為 key，把 parser 與 resolver 配成一筆。**新增語言＝這張表加一筆** | 一筆：`.py` |
-| **facts** `app/facts/` | 一張「Fact 型別 → 產生器」的表，把 Fact 接成節點與邊。**加一種 Fact＝表加一筆** | 四筆：`Defines` 直接變節點、`Import`、`Inherits` 與 `Calls` 轉交 resolve |
-| **resolve** `app/resolve/` | 相當於 linker：把 import 的字串接到節點上，接不到就造 `external_package`。**整條管線準確度的瓶頸** | 只有 Python。相對 import、`__init__.py` 讓資料夾成為模組都涵蓋了。繼承的 base 以「本檔宣告 → 本檔 import」查表，只連專案內的 class，外部的計入 `meta.unresolved_inherits` |
-| **build** `app/graph/build.py` | 組成 networkx 圖、驗證每條邊兩端節點都存在、算出 `meta`（循環依賴等） | `isolated_nodes` 定義未定，恆為空。`cycles` 用 `nx.simple_cycles`，**大 repo 會跑不完** |
-| **查詢層** `app/graph/query.py` | 對外唯一的出口。API 與前端**不直接操作 networkx 物件** | `document()`、`view()` 與 `impact()`（改這個節點會波及誰）。`neighbors()` / `path()` 還沒有呼叫端 |
-| **視圖** `app/graph/views.py` | 收合層級與篩邊。**都是同一張圖的查詢條件**，不是另一條管線 | `level` ＋ `externals`（`full` / `grouped` / `hidden`），順序固定先收合再篩邊 |
-| **serialize** `app/models/` | pydantic 的 `{ nodes, edges, meta }`。同一份形狀既是磁碟格式也是 API 格式 | **前後端唯一契約**，改它就要同步改 `types.ts` |
-| **API** `app/api/`、`pipeline.py` | `POST /api/analyze`，收 `path` / `level` / `externals` / `edge_types`；`POST /api/impact`，收 `path` / `node` / `level` / `externals` | 同步回傳，沒有工作佇列；換個層級目前會重跑整條分析 |
-| **前端** `frontend/src/` | `transform.ts` 把 API 形狀翻成畫布的 element，元件不直接碰 API 型別 | **3D（three.js）為預設**，2D（Cytoscape）保留當對照組，兩個都常駐。**點節點**看影響範圍，一層一層亮起來 |
+| 元件 | 做什麼 |
+|---|---|
+| **ingest** `app/ingest/` | 交出一個**可以安全走訪的根目錄**。後續階段一律只看到一個目錄，不知道 source 原本是什麼 |
+| **scan** `app/scan/` | 走訪目錄、套用忽略規則，產出 `file` / `directory` 節點與 `contains` 邊，並決定哪些檔案要送去 parse |
+| **parse** `app/parsers/` | 逐檔案抽出帶型別的 **Fact**。只看單一檔案、不做路徑解析 |
+| **語言 registry** `app/languages/` | 以副檔名為 key，把 parser 與 resolver 配成一筆。**新增語言＝這張表加一筆** |
+| **facts** `app/facts/` | 一張「Fact 型別 → 產生器」的表，把 Fact 接成節點與邊。**加一種 Fact＝表加一筆** |
+| **resolve** `app/resolve/` | 相當於 linker：把 import 的字串接到節點上，接不到就造 `external_package`。**整條管線準確度的瓶頸** |
+| **build** `app/graph/build.py` | 組成 networkx 圖、驗證每條邊兩端節點都存在、算出 `meta`（循環依賴等） |
+| **查詢層** `app/graph/query.py` | 對外唯一的出口。API 與前端**不直接操作 networkx 物件** |
+| **視圖** `app/graph/views.py` | 收合層級與篩邊。**都是同一張圖的查詢條件**，不是另一條管線 |
+| **serialize** `app/models/` | pydantic 的 `{ nodes, edges, meta }`。同一份形狀既是磁碟格式也是 API 格式 |
+| **API** `app/api/`、`pipeline.py` | `POST /api/analyze`，收 `path` / `level` / `externals` / `edge_types`；`POST /api/impact`，收 `path` / `node` / `level` / `externals` |
+| **前端** `frontend/src/` | `transform.ts` 把 API 形狀翻成畫布的 element，元件不直接碰 API 型別 |
 
 **尚未進主線的圖型別**：`module` 節點。**分析對象只支援 Python**（與後端本身用 Python 實作是兩回事）—— 非 Python 檔案仍有 `file` 節點，只是不送進 parse。
 
