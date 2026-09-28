@@ -9,7 +9,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.graph import BuildError, ExternalMode, collapse, only_edges
+from app.graph import BuildError, CodeGraph, ExternalMode, collapse, only_edges
 from app.ingest import IngestError, allowed_roots_from_env, from_local_path
 from app.models import EdgeType, GraphDocument
 from app.pipeline import analyze as run_pipeline
@@ -29,21 +29,26 @@ class AnalyzeRequest(BaseModel):
     externals: ExternalMode = "full"
 
 
-@router.post("/api/analyze", response_model=GraphDocument)
-def analyze(request: AnalyzeRequest) -> GraphDocument:
+def graph_at(path: str) -> CodeGraph:
+    """請求裡的路徑 → 分析好的圖，失敗換成狀態碼。`/api/impact` 也走這一段。"""
     try:
-        root = from_local_path(request.path, allowed_roots_from_env())
+        root = from_local_path(path, allowed_roots_from_env())
     except IngestError:
         # 詳細原因只進日誌：回給前端等於洩漏允許清單與目錄結構。
         logger.warning("路徑被拒絕", exc_info=True)
         raise HTTPException(status_code=400, detail="路徑不被允許") from None
 
     try:
-        graph = run_pipeline(root)
+        return run_pipeline(root)
     except BuildError:
         # 走到這裡是管線自己產出了不一致的圖，不是使用者的錯。
         logger.exception("組圖失敗")
         raise HTTPException(status_code=500, detail="分析失敗") from None
+
+
+@router.post("/api/analyze", response_model=GraphDocument)
+def analyze(request: AnalyzeRequest) -> GraphDocument:
+    graph = graph_at(request.path)
 
     # 兩個都是查詢條件，順序固定：**先收合再篩邊**。收合要靠 contains 邊算層級，
     # 先篩成 imports 視圖的話那些邊就沒了，收不動。

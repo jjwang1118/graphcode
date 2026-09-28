@@ -25,6 +25,7 @@ HTTP 層。**只做 HTTP 的事。**
 |---|---|---|---|
 | `GET` | `/api/ping` | `{"status": "ok"}` | `app/api/health.py` |
 | `POST` | `/api/analyze` | `GraphDocument` | `app/api/analyze.py` |
+| `POST` | `/api/impact` | `GraphDocument` | `app/api/impact.py` |
 
 ### 2.2 `AnalyzeRequest`
 
@@ -44,6 +45,21 @@ HTTP 層。**只做 HTTP 的事。**
 ### 2.3 回應
 
 一律是 `GraphDocument`（`{ nodes, edges, meta }`），形狀見 `graph_schema.md`。這份形狀同時是磁碟儲存格式，**前端只需要認識一種形狀**。
+
+`/api/impact` 也是：受影響的節點在 `nodes`、擴散的那幾步在 `edges`，每個節點多一個 `properties.impact_depth`。**沒有為它開新的形狀。**
+
+### 2.4 `ImpactRequest`
+
+| 欄位 | 型別 | 預設 | 說明 |
+|---|---|---|---|
+| `path` | `str` | 必填 | 同 `AnalyzeRequest` |
+| `node` | `str` | 必填 | 點的那個節點的 id。畫面上看得到的那一個，收合過的（目錄、檔案）也可以 |
+| `level` | `int \| None` | `None` | 同 `AnalyzeRequest`。**要跟畫面用的一樣**，回傳的節點才會是畫面上已經有的那些 |
+| `externals` | `ExternalMode` | `"full"` | 同上 |
+
+```json
+{ "path": "/home/user/project", "node": "function:src/io.py::save", "level": 3, "externals": "grouped" }
+```
 
 ---
 
@@ -65,7 +81,7 @@ A3 的代價與理由：
 | | |
 |---|---|
 | 代價 | 每個路由都要重複寫 `/api`；日後版本化成 `/api/v1` 得逐檔改 |
-| 理由 | 目前只有兩個模組，統一前綴的機制此刻只是預留。真要版本化時，那次改動本來就會一併引入聚合層 |
+| 理由 | 目前只有三個模組，統一前綴的機制此刻只是預留。真要版本化時，那次改動本來就會一併引入聚合層 |
 
 > 前端的 vite proxy 以 `/api` 為條件轉發到 `:8000`，所以**這個前綴是前後端的約定，不能隨意更動**。
 
@@ -80,6 +96,8 @@ A3 的代價與理由：
 | A9 | 同步回傳，一次回整份文件。 |
 
 A7 的順序不可對調：`collapse()` 要靠 `contains` 邊算層級，先篩成 imports 視圖的話那些邊就沒了，收不動（見 `graph.md` §3.6）。
+
+A5、A6 寫在 `graph_at(path) -> CodeGraph`，兩個端點共用——錯誤處理（§4）因此只有一份。
 
 ### 3.3 為什麼是 POST（A4 之外的決定）
 
@@ -112,6 +130,17 @@ P5 目前只有一組（Python），仍寫成迴圈——加語言時這裡不�
 
 P6 的 `counters` key 就是 `Diagnostics` 的欄位名，所以 `pipeline.py` 不必提任何一個計數的名字（`facts.md` §8.3）；`parse_failures` 不是任何 Fact 的產物（整份檔案都沒解析出來，一筆事實都沒有），仍由這裡算。
 
+### 3.5 `POST /api/impact` 的流程（plan 5.6）
+
+| # | 規則 |
+|---|---|
+| A10 | 先 `graph_at(request.path)`，與 `/api/analyze` 同一段（A5、A6）。 |
+| A11 | 再 `graph.impact(request.node)` 算影響範圍（`graph.md` §3.8）。 |
+| A12 | 最後 `project(影響範圍, graph.document(), level, externals)` 換到畫面的層級（`graph.md` §3.9）。 |
+| A13 | 同步回傳，**每次都重跑一次分析**，同 A9。 |
+
+A13 的代價：本專案一次 0.07 秒，networkx 約 1.5 秒。分析結果要存哪、怎麼重用還沒決定（plan 4.4），決定之後這裡改成讀存好的圖，介面不變。
+
 ---
 
 ## 4. 錯誤
@@ -120,6 +149,7 @@ P6 的 `counters` key 就是 `Diagnostics` 的欄位名，所以 `pipeline.py` �
 |---|---|---|---|
 | 路徑不在 allowlist 內／不存在／不是目錄／清單未設定 | `400` | `路徑不被允許` | `warning` ＋ traceback |
 | 組圖失敗（`BuildError`） | `500` | `分析失敗` | `exception` |
+| `/api/impact` 的 `node` 不在圖裡 | `404` | `沒有這個節點` | — |
 | 請求形狀不合（缺 `path`、`externals` 值不對） | `422` | FastAPI 預設 | — |
 
 `BuildError` 是**管線自己產出了不一致的圖**，不是使用者給錯東西，所以是 500 而不是 400。
@@ -145,6 +175,7 @@ P6 的 `counters` key 就是 `Diagnostics` 的欄位名，所以 `pipeline.py` �
 | 測試檔 | 筆數 | 涵蓋 |
 |---|---|---|
 | `tests/test_api_analyze.py` | 5 | A5–A9、400／500 的訊息、I2 |
+| `tests/test_graph_impact.py` | 3（API 部分） | A10–A13、404 |
 | `tests/test_pipeline.py` | 10 | P1–P6 |
 | `tests/test_smoke.py` | — | `/api/ping` |
 

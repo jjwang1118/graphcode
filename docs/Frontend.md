@@ -286,7 +286,7 @@ bundle 從 656 kB 變成約 2 MB。**code splitting 還沒做**，列在 plan 4.
 
 | 視圖 | `edge_types` |
 |---|---|
-| **全部（預設）** | 省略 |
+| **全部（預設）** | `["contains", "defines", "imports", "inherits"]`——**刻意不含 `calls`**，上百條呼叫線平常畫出來會把圖淹掉，只在點節點時由 `/api/impact` 帶回那幾條（plan 5.6） |
 | 目錄樹 | `["contains"]` |
 | 依賴圖 | `["imports"]` |
 

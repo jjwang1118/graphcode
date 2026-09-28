@@ -42,6 +42,7 @@
 | `CodeGraph.document` | `() -> GraphDocument` | 整張圖。API 回傳與存檔都用它 |
 | `CodeGraph.view` | `(*edge_types: EdgeType) -> GraphDocument` | 篩邊型別 |
 | `CodeGraph.meta` | 屬性，`Meta` | 全圖的 `meta` |
+| `CodeGraph.impact` | `(node_id: str) -> GraphDocument` | 改這個節點會波及誰（§3.8）。圖裡沒有這個節點丟 `UnknownNodeError`（`KeyError` 的子類） |
 
 `CodeGraph` 定義在 `query.py` 而不是 `build.py`：它就是查詢層那個介面，`build.py` 只管組與驗。日後的查詢方法往這個類別加，不必搬家。
 
@@ -55,6 +56,8 @@
 | `only_edges` | `(document: GraphDocument, edge_types: Sequence[EdgeType]) -> GraphDocument` |
 | `ExternalMode` | `Literal["full", "grouped", "hidden"]` |
 | `GROUPED_EXTERNAL_ID` | `str` = `"ext:*"` |
+| `project` | `(impact: GraphDocument, tree: GraphDocument, level: int \| None = None, externals: ExternalMode = "full") -> GraphDocument` |
+| `TREE_EDGES` | `frozenset[EdgeType]` = `{contains, defines}`。層級樹由哪兩種邊構成，`collapse()` 與 `impact()` 共用這一份 |
 
 ### 2.4 存檔 · `store.py`
 
@@ -157,6 +160,31 @@ CodeGraph → save(path) → JSON 檔 → load(path) → CodeGraph
 | S4 | `load()` 把五個計數包成 `Diagnostics` 傳回去，否則讀一次就歸零。 |
 | S5 | `cycles` 等其餘 `meta` 讀回時**重算**——它們是衍生資訊，重算才能保證與節點邊的內容一致。 |
 
+### 3.8 影響範圍 · `CodeGraph.impact`（plan 5.6）
+
+回答「改這個節點會波及誰」。
+
+| # | 規則 |
+|---|---|
+| IM1 | 起點是該節點**加上它在層級樹（`TREE_EDGES`）底下的全部後代**。點一個檔案＝「這個檔案裡任何一個函式被改了」。 |
+| IM2 | 從起點沿 `calls` **反向**（被呼叫者 → 呼叫者）廣度優先，一路走到沒有新的呼叫者為止。 |
+| IM3 | 每個節點帶 `properties["impact_depth"]`：離起點幾步，起點為 0。廣度優先，所以是**最短**步數。 |
+| IM4 | 回傳的邊只有**往外擴散的那一步**——`calls` 邊且呼叫者比被呼叫者深恰好一層。同一層之間互相呼叫的不算，那條線不是波及的路徑。 |
+| IM5 | `meta` 同 Q3：數量依結果重算，其餘沿用全圖。 |
+
+只沿 `calls` 走，不沿 `imports`：`imports` 是檔案層的依賴，它說「這個檔案用到那個檔案」，不說「改那個函式會不會壞」。解不出來的呼叫（`unresolved_calls`）不在圖上，所以**波及範圍只會少算、不會多算**。
+
+### 3.9 投影到畫面的層級 · `project`
+
+`impact()` 的結果是全圖的節點；畫面上的是收合過的。這一步把前者換成後者。
+
+| # | 規則 |
+|---|---|
+| PJ1 | 每個受影響的節點換成**收合後代表它的節點**，用的是與 `collapse()` 同一張對照表（C2、C3、E1–E3）。所以亮起來的一定是畫面上已經有的那個節點。 |
+| PJ2 | 多個節點收進同一個代表時，取**最小**的 `impact_depth`——最早被波及的那一步才是它亮起來的時間。 |
+| PJ3 | 邊照 C5–C7 換端點、去自環、合併成帶 `weight` 的一條。 |
+| PJ4 | 代表被 `externals="hidden"` 藏起來的節點不出現。 |
+
 ---
 
 ## 4. 產出的資料
@@ -171,6 +199,8 @@ CodeGraph → save(path) → JSON 檔 → load(path) → CodeGraph
 | `sources` | `imports` 邊 | `list[dict]` | 被合併掉的原始邊，每項是 `{from, to, module, name, line}`（C11） |
 
 `packages` 與 `sources` 留著名單而不只留數量，是為了之後做「點開展開」時不必重新分析。
+
+`impact()` 與 `project()` 另外在節點上加 `impact_depth`（`int`，IM3、PJ2）。只出現在影響範圍的回應裡，整張圖與收合的回應都沒有。
 
 `sources` 的量級：收合後揹的細節總數等於原本的 `imports` 邊數，不會因為收合而增生。本專案 222 條 imports 分散在 63 條收合邊上，整份 JSON 46 KB，仍低於檔案層的 64 KB。
 
@@ -188,6 +218,8 @@ CodeGraph → save(path) → JSON 檔 → load(path) → CodeGraph
 | 收合後某個節點沒有任何邊 | 照樣保留（同 Q2） |
 | `externals="hidden"` 且某檔案只 import 外部套件 | 該檔案節點留著，邊全部消失 |
 | 大圖的 `cycles` | `nx.simple_cycles` 有**指數爆炸**風險，見 §9 |
+| `impact()` 問了不存在的節點 | `UnknownNodeError`。收合後的 `ext:*` 不是真的節點，問它也是這個 |
+| `impact()` 問的節點沒有人呼叫 | 只回它自己（與它的後代），`impact_depth` 全為 0，沒有邊 |
 
 ---
 
@@ -216,6 +248,7 @@ I5 是「語意縮放」成立的前提：往下一層是**看得更細**，不�
 | `tests/test_graph_query.py` | 8 | Q1–Q3 |
 | `tests/test_graph_views.py` | 19 | C1–C11、E1–E3、I5、I8 |
 | `tests/test_graph_store.py` | 3 | S1–S5、I3 |
+| `tests/test_graph_impact.py` | 11 | IM1–IM5、PJ1–PJ3，以及 `POST /api/impact`（api.md A10–A13） |
 
 ### 收合的實測（本專案，`level=3`）
 

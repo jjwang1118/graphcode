@@ -29,8 +29,9 @@ GROUPED_EXTERNAL_ID = make_id(NodeType.EXTERNAL_PACKAGE, "*")
 #: 算層級時要爬的邊。**兩種都要吃**——`contains` 是檔案系統的包含、`defines`
 #: 是程式碼的宣告包含，接起來才是完整的一棵樹。只認 `contains` 的話 class 與
 #: function 上面沒有父節點，會被當成深度 0 的孤兒，每個層級都收不掉。
-#: CLAUDE.md 圖模型那節把這件事寫成 `defines` 的代價。
-_TREE_EDGES = frozenset({EdgeType.CONTAINS, EdgeType.DEFINES})
+#: CLAUDE.md 圖模型那節把這件事寫成 `defines` 的代價。查詢層的 `impact()` 找後
+#: 代也用這一份，「層級樹是哪兩種邊」只寫在這裡。
+TREE_EDGES = frozenset({EdgeType.CONTAINS, EdgeType.DEFINES})
 
 
 def collapse(
@@ -78,13 +79,55 @@ def only_edges(
     )
 
 
+def project(
+    impact: GraphDocument,
+    tree: GraphDocument,
+    level: int | None = None,
+    externals: ExternalMode = "full",
+) -> GraphDocument:
+    """把 `CodeGraph.impact()` 的結果換到畫面上看得到的那一層。
+
+    `tree` 是整張圖（算層級要它的 `contains` 與 `defines`）。每個受影響的節點換
+    成代表它的節點，同一個代表取**最小**的 `impact_depth`——最早被波及的那一步
+    才是它亮起來的時間。邊照收合的規則換端點、去自環、合併（C5–C7）。
+
+    跟 `collapse()` 用同一張「節點 → 代表」的表，所以點下去亮起來的，一定是畫
+    面上已經有的那個節點。
+    """
+    target = _apply_external_mode(tree, _targets(tree, level), externals)
+    by_id = {node.id: node for node in tree.nodes}
+
+    depth: dict[str, int] = {}
+    for node in impact.nodes:
+        shown = target.get(node.id, "")
+        if not shown or shown not in by_id:
+            continue
+        steps = node.properties["impact_depth"]
+        depth[shown] = min(depth.get(shown, steps), steps)
+
+    nodes = [
+        by_id[shown].model_copy(
+            update={"properties": {**by_id[shown].properties, "impact_depth": steps}}
+        )
+        for shown, steps in depth.items()
+    ]
+    edges = _edges(impact, target)
+    return GraphDocument(
+        nodes=nodes,
+        edges=edges,
+        meta=tree.meta.model_copy(
+            update={"node_count": len(nodes), "edge_count": len(edges)}
+        ),
+    )
+
+
 def _targets(document: GraphDocument, level: int | None) -> dict[str, str]:
     """每個節點 id → 收合後代表它的節點 id。"""
     if level is None:
         return {node.id: node.id for node in document.nodes}
 
     parent = {
-        edge.target: edge.source for edge in document.edges if edge.type in _TREE_EDGES
+        edge.target: edge.source for edge in document.edges if edge.type in TREE_EDGES
     }
     return {node.id: _ancestor(node.id, parent, level) for node in document.nodes}
 

@@ -15,9 +15,14 @@ export const viewLabels: Record<ViewId, string> = {
   imports: '依賴圖',
 };
 
-/** 送給 `POST /api/analyze` 的 `edge_types`；`undefined` 代表整張圖。 */
+/**
+ * 送給 `POST /api/analyze` 的 `edge_types`；`undefined` 代表整張圖。
+ *
+ * 「全部」刻意**不含 `calls`**：呼叫線上百條，平常畫出來會把圖淹掉，只在點節點
+ * 時由 `POST /api/impact` 帶回該節點的那幾條（plan 5.6）。
+ */
 export const viewEdgeTypes: Record<ViewId, EdgeType[] | undefined> = {
-  all: undefined,
+  all: ['contains', 'defines', 'imports', 'inherits'],
   tree: ['contains'],
   imports: ['imports'],
 };

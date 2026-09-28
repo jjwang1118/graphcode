@@ -98,6 +98,7 @@ def test_networkx_is_not_exposed() -> None:
 
     assert [name for name in dir(graph) if not name.startswith("_")] == [
         "document",
+        "impact",
         "meta",
         "view",
     ]
