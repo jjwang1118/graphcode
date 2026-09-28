@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { GraphDocument } from '../api/types';
-import { toElements } from './transform';
+import { toElements, toImpact } from './transform';
 
 const empty: GraphDocument = {
   nodes: [],
@@ -210,5 +210,60 @@ describe('toElements', () => {
 
   it('handles an empty graph', () => {
     expect(toElements(empty)).toEqual({ nodes: [], edges: [] });
+  });
+});
+
+describe('toImpact', () => {
+  // save ← export ← main：點 save，export 第 1 步、main 第 2 步亮
+  const answer: GraphDocument = {
+    ...empty,
+    nodes: [
+      { id: 'f:save', type: 'function', label: 'save', properties: { impact_depth: 0 } },
+      { id: 'f:export', type: 'function', label: 'export', properties: { impact_depth: 1 } },
+      { id: 'f:main', type: 'function', label: 'main', properties: { impact_depth: 2 } },
+    ],
+    edges: [
+      { source: 'f:export', target: 'f:save', type: 'calls', properties: { line: 4 } },
+      { source: 'f:main', target: 'f:export', type: 'calls', properties: { weight: 3 } },
+    ],
+  };
+
+  it('reads each node step from impact_depth', () => {
+    expect([...toImpact(answer).depthOf]).toEqual([
+      ['f:save', 0],
+      ['f:export', 1],
+      ['f:main', 2],
+    ]);
+  });
+
+  it('knows how many steps the wave takes', () => {
+    expect(toImpact(answer).steps).toBe(2);
+  });
+
+  it('shapes the edges like the main graph so a canvas can add them as they are', () => {
+    expect(toImpact(answer).edges.map((edge) => [edge.data.id, edge.data.count])).toEqual([
+      ['calls:f:export->f:save', 1],
+      ['calls:f:main->f:export', 3],
+    ]);
+  });
+
+  it('closes the gaps collapsing leaves so no step lights up nothing', () => {
+    const gapped = {
+      ...answer,
+      nodes: [
+        { ...answer.nodes[0], properties: { impact_depth: 0 } },
+        { ...answer.nodes[2], properties: { impact_depth: 2 } },
+      ],
+    };
+
+    expect([...toImpact(gapped).depthOf.values()]).toEqual([0, 1]);
+    expect(toImpact(gapped).steps).toBe(1);
+  });
+
+  it('a node nobody calls is a wave of one step', () => {
+    const lone = { ...empty, nodes: [answer.nodes[0]] };
+
+    expect(toImpact(lone).steps).toBe(0);
+    expect(toImpact(lone).edges).toEqual([]);
   });
 });

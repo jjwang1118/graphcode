@@ -75,3 +75,15 @@ export interface AnalyzeRequest {
   level?: number | null;
   externals?: ExternalMode;
 }
+
+/**
+ * `POST /api/impact` 的 body：點了哪個節點。`level`／`externals` 要跟畫面用的一
+ * 樣，回來的節點才會是畫面上已經有的那些。回應仍是 `GraphDocument`，每個節點多
+ * 一個 `properties.impact_depth`。
+ */
+export interface ImpactRequest {
+  path: string;
+  node: string;
+  level?: number | null;
+  externals?: ExternalMode;
+}

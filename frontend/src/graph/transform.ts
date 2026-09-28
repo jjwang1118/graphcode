@@ -52,6 +52,38 @@ export function toElements(document: GraphDocument): CytoscapeElements {
   };
 }
 
+/** 點一個節點之後，要一層一層亮起來的東西。 */
+export interface Impact {
+  /** 節點 id → 第幾步被波及。點的那個是 0 */
+  depthOf: Map<string, number>;
+  /** 擴散的那幾步：呼叫者 → 被呼叫者，呼叫者比被呼叫者晚一步亮 */
+  edges: CytoscapeEdge[];
+  /** 最後一步是第幾步 */
+  steps: number;
+}
+
+/**
+ * `POST /api/impact` 的回應 → 畫布要的形狀。邊的形狀與主圖相同，畫布直接加進去。
+ *
+ * 深度**依序重新編號**：收合之後某一步的節點可能全被併進更早的那個（後端取最小
+ * 深度），深度就會跳號（0、2、3）。照原數字播，畫面會在空的那一步乾等一格，看起
+ * 來像卡住。先後順序不變，只是去掉空步。
+ */
+export function toImpact(document: GraphDocument): Impact {
+  const raw = new Map<string, number>();
+  for (const node of document.nodes) {
+    const depth = node.properties.impact_depth;
+    if (typeof depth === 'number') raw.set(node.id, depth);
+  }
+  const order = [...new Set(raw.values())].sort((a, b) => a - b);
+  const depthOf = new Map([...raw].map(([id, depth]) => [id, order.indexOf(depth)]));
+  return {
+    depthOf,
+    edges: aggregate(document.edges),
+    steps: Math.max(0, order.length - 1),
+  };
+}
+
 function toNode(node: GraphDocument['nodes'][number]): CytoscapeNode {
   const parseError = node.properties.parse_error;
   return {

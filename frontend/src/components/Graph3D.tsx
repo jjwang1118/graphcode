@@ -11,14 +11,24 @@ import { useEffect, useRef, useState } from 'react';
 import SpriteText from 'three-spritetext';
 
 import type { GraphDocument, NodeType } from '../api/types';
-import { palette } from '../graph/style';
-import { toElements, type ImportDetail } from '../graph/transform';
+import { IMPACT_STEP_MS, palette } from '../graph/style';
+import { toElements, type Impact, type ImportDetail } from '../graph/transform';
 import { DetailBox } from './DetailBox';
 
 interface Props {
   graph: GraphDocument | null;
   /** 節點間距。3D 版本改的是力導向的理想邊長，不是事後縮放座標。 */
   spacing: number;
+  /** 點了節點之後要一層一層亮起來的範圍；null＝沒有 */
+  impact: Impact | null;
+  /** 點了哪個節點；點空白處是 null。問後端是 App 的事，畫布只回報 */
+  onSelect: (node: string | null) => void;
+}
+
+/** 波紋進行到哪：哪些節點在第幾步，目前亮到第幾步。 */
+interface Wave {
+  depthOf: Map<string, number>;
+  shown: number;
 }
 
 /** 點開的那條線：位置與內容。跟 2D 共用同一個 DetailBox。 */
@@ -70,7 +80,7 @@ function typeOf(link: object): string | undefined {
 /** 關係（依賴、繼承）比骨架（contains、defines）粗，而且要畫箭頭。 */
 function isRelation(link: object): boolean {
   const type = typeOf(link);
-  return type === 'imports' || type === 'inherits';
+  return type === 'imports' || type === 'inherits' || type === 'calls';
 }
 
 /** 每種邊的顏色。查不到的是 `contains`，用骨架色。 */
@@ -78,6 +88,7 @@ const LINK_COLOR: Record<string, string> = {
   imports: palette.edgeImports,
   defines: palette.edgeDefines,
   inherits: palette.edgeInherits,
+  calls: palette.edgeCalls,
 };
 
 function linkColor(link: object): string {
@@ -122,7 +133,7 @@ const LABEL_HEIGHT = 3.5;
 //: 底色。3D 沒有 2D 那種文字底框，數字疊到別的線上就糊了。
 const LABEL_BACKGROUND = 'rgba(10,13,20,0.82)';
 
-export function Graph3D({ graph, spacing }: Props) {
+export function Graph3D({ graph, spacing, impact, onSelect }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const scene = useRef<ForceGraph3DInstance | null>(null);
   // 起不來的原因要說出來。畫面一片空白時分不出是沒資料、尺寸 0 還是 WebGL 掛了。
@@ -135,6 +146,10 @@ export function Graph3D({ graph, spacing }: Props) {
   // 放 ref 不放 state——accessor 是建立實例時就註冊的，只能讀得到 ref 的當下值。
   const focus = useRef<Set<string> | null>(null);
   const neighbours = useRef(new Map<string, Set<string>>());
+  // 影響範圍的波紋。跟 focus 一樣放 ref，accessor 才讀得到當下值
+  const wave = useRef<Wave | null>(null);
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
 
   // 只建立一次。重建會失去鏡頭角度。
   useEffect(() => {
@@ -153,6 +168,7 @@ export function Graph3D({ graph, spacing }: Props) {
         .nodeVal('size')
         .nodeColor((node: object) => {
           const point = node as { id: string; color: string };
+          if (wave.current) return reached(point.id) ? palette.impact : DIM_NODE;
           const lit = focus.current;
           return !lit || lit.has(point.id) ? point.color : DIM_NODE;
         })
@@ -175,11 +191,14 @@ export function Graph3D({ graph, spacing }: Props) {
         })
         .linkColor((link) => {
           const own = linkColor(link);
+          if (wave.current) return typeOf(link) === 'calls' ? own : DIM_LINK;
           const lit = focus.current;
           if (!lit) return own;
           const [source, target] = endsOf(link);
           return lit.has(source) && lit.has(target) ? own : DIM_LINK;
         })
+        // 呼叫線只在波紋走到它的呼叫者那一步才出現
+        .linkVisibility((link) => typeOf(link) !== 'calls' || reached(endsOf(link)[0]))
         .linkWidth((link) => (isRelation(link) ? 0.6 : 0.3))
         .linkOpacity(0.55)
         .linkDirectionalArrowLength((link) => (isRelation(link) ? 3 : 0))
@@ -219,11 +238,16 @@ export function Graph3D({ graph, spacing }: Props) {
             details,
           });
         })
-        // hover 與點擊都吃：hover 是 2D 的行為，點擊是滑不準時的備案
-        .onNodeHover((node) => light(node as { id: string } | null))
-        .onNodeClick((node) => light(node as { id: string } | null))
-        // 點空白處還原
-        .onBackgroundClick(() => light(null));
+        // hover 亮鄰居；波紋亮著的時候不動它，否則滑鼠一掃過就把整片還原了
+        .onNodeHover((node) => {
+          if (!wave.current) light(node as { id: string } | null);
+        })
+        // 點節點看影響範圍，點空白處還原
+        .onNodeClick((node) => onSelectRef.current((node as { id: string }).id))
+        .onBackgroundClick(() => {
+          light(null);
+          onSelectRef.current(null);
+        });
     } catch (cause) {
       // 最常見的是 WebGL 起不來（顯示卡驅動、遠端桌面、瀏覽器設定）
       setFailure(cause instanceof Error ? cause.message : '3D 畫布無法初始化');
@@ -231,6 +255,14 @@ export function Graph3D({ graph, spacing }: Props) {
     }
 
     scene.current = instance;
+
+    // 波紋走到這個節點了沒
+    function reached(id: string): boolean {
+      const now = wave.current;
+      if (!now) return false;
+      const depth = now.depthOf.get(id);
+      return depth !== undefined && depth <= now.shown;
+    }
 
     // 沒有節點就是還原。Cytoscape 的 class 換一下就重畫，3D 得自己把 accessor
     // 重新餵回去逼它重新求值。
@@ -308,6 +340,62 @@ export function Graph3D({ graph, spacing }: Props) {
     const framed = setTimeout(() => instance.zoomToFit(600, 60), 1200);
     return () => clearTimeout(framed);
   }, [graph]);
+
+  // 影響範圍：呼叫線平常不在圖上，這裡整批加進去（不參與力導向，免得整張圖因
+  // 為多了幾條線而跳動），再每 IMPACT_STEP_MS 把「亮到第幾步」往前推一格；
+  // 顏色與可見性由上面的 accessor 依 wave 決定。
+  useEffect(() => {
+    const instance = scene.current;
+    if (!instance || !graph) return;
+
+    const data = instance.graphData();
+    const kept = data.links.filter((link) => typeOf(link) !== 'calls');
+    const present = new Set(data.nodes.map((node) => String(node.id)));
+    const added = (impact?.edges ?? [])
+      .filter((edge) => present.has(edge.data.source) && present.has(edge.data.target))
+      .map((edge) => ({
+        source: edge.data.source,
+        target: edge.data.target,
+        type: 'calls',
+        count: edge.data.count,
+      }));
+
+    const force = instance.d3Force('link');
+    if (force && !force.impactPatched) {
+      // 原本的強度函式留著，只有呼叫線改成 0：它們只是畫出來看，不該拉動節點
+      const original = force.strength();
+      force.strength((link: object, index: number, links: object[]) =>
+        typeOf(link) === 'calls' ? 0 : original(link, index, links),
+      );
+      force.impactPatched = true;
+    }
+    // 沿用原本的節點物件，座標才不會重來
+    if (added.length || kept.length !== data.links.length) {
+      instance.graphData({ nodes: data.nodes, links: [...kept, ...added] });
+    }
+
+    wave.current = impact ? { depthOf: impact.depthOf, shown: -1 } : null;
+    const refresh = () =>
+      instance
+        .nodeColor(instance.nodeColor())
+        .linkColor(instance.linkColor())
+        .linkVisibility(instance.linkVisibility());
+    refresh();
+    if (!impact) return;
+
+    const timers: number[] = [];
+    for (let step = 0; step <= impact.steps; step += 1) {
+      timers.push(
+        window.setTimeout(() => {
+          if (wave.current) wave.current.shown = step;
+          refresh();
+        }, step * IMPACT_STEP_MS),
+      );
+    }
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+    // graph 換了由上面那個 effect 重餵資料；App 同時會把 impact 清成 null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [impact]);
 
   // 2D 版的間距是「排完之後拉開座標」，3D 版直接調力導向的理想邊長——3D 的排版
   // 是持續在跑的，改參數就會自己重新鬆開，不必自己動座標。

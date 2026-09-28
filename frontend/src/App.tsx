@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-import { analyze } from './api/client';
+import { analyze, impact as impactOf } from './api/client';
 import type { GraphDocument } from './api/types';
 import { Graph3D } from './components/Graph3D';
 import { GraphCanvas } from './components/GraphCanvas';
@@ -8,6 +8,7 @@ import { Sidebar } from './components/Sidebar';
 import type { LayoutId } from './graph/layouts';
 import { layoutFor } from './graph/levels';
 import { palette } from './graph/style';
+import { toImpact, type Impact } from './graph/transform';
 import { viewEdgeTypes, type ViewId } from './graph/views';
 import type { ExternalMode } from './api/types';
 
@@ -49,10 +50,17 @@ export default function App() {
   const [renderer, setRenderer] = useState<'2d' | '3d'>('3d');
   // 已經分析過的路徑。換層級要重打一次，得知道上次打的是哪個路徑。
   const [analyzed, setAnalyzed] = useState<string | null>(null);
+  // 點了節點之後要亮起來的範圍；null＝沒有在看影響範圍
+  const [impact, setImpact] = useState<Impact | null>(null);
+  // 連點好幾個節點時，只認最後一次問的——先送出的回應晚到不能蓋掉它
+  const asked = useRef(0);
 
   async function run(target: string, request: Query) {
     setLoading(true);
     setError(null);
+    // 圖換了，舊的影響範圍指向的節點可能已經不在
+    asked.current += 1;
+    setImpact(null);
     try {
       setGraph(
         await analyze({
@@ -79,6 +87,25 @@ export default function App() {
     // 只認這三個：path 改了要按分析鈕，不該邊打字邊送請求。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, level, externals]);
+
+  // 點節點看影響範圍，點空白處（node = null）還原。算影響範圍是後端的事，這裡
+  // 只負責問、然後把答案交給畫布。
+  async function select(node: string | null) {
+    const ticket = (asked.current += 1);
+    if (node === null || analyzed === null) {
+      setImpact(null);
+      return;
+    }
+    try {
+      const answer = await impactOf({ path: analyzed, node, level, externals });
+      if (ticket === asked.current) setImpact(toImpact(answer));
+    } catch {
+      // 問不到就還原，不寫進側欄的錯誤區：分析已經成功，走到這裡最常見的是點
+      // 了「外部套件 (n)」那個合併出來的節點——它不是真的節點，本來就沒有影響
+      // 範圍（後端回 404）。把它報成錯誤反而像是分析壞了
+      if (ticket === asked.current) setImpact(null);
+    }
+  }
 
   function changeLevel(next: number | null) {
     setLevel(next);
@@ -152,10 +179,17 @@ export default function App() {
               layout={layout}
               spacing={spacing}
               query={query}
+              impact={impact}
+              onSelect={(node) => void select(node)}
             />
           </Pane>
           <Pane visible={renderer === '3d'}>
-            <Graph3D graph={graph} spacing={spacing} />
+            <Graph3D
+              graph={graph}
+              spacing={spacing}
+              impact={impact}
+              onSelect={(node) => void select(node)}
+            />
           </Pane>
         </main>
       </div>

@@ -222,6 +222,12 @@ export function Sidebar({
             label="inherits"
             note="繼承"
           />
+          <LineLegend
+            color={palette.edgeCalls}
+            thickness={2}
+            label="calls"
+            note="呼叫（點節點才出現）"
+          />
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <span
               style={{

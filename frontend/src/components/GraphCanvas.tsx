@@ -8,8 +8,8 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { GraphDocument } from '../api/types';
 import { layoutOptions, type LayoutId } from '../graph/layouts';
-import { graphStyle, minimapStyle, palette } from '../graph/style';
-import { toElements, type ImportDetail } from '../graph/transform';
+import { graphStyle, IMPACT_STEP_MS, minimapStyle, palette } from '../graph/style';
+import { toElements, type Impact, type ImportDetail } from '../graph/transform';
 import { DetailBox } from './DetailBox';
 
 interface Props {
@@ -17,6 +17,10 @@ interface Props {
   layout: LayoutId;
   spacing: number;
   query: string;
+  /** 點了節點之後要一層一層亮起來的範圍；null＝沒有 */
+  impact: Impact | null;
+  /** 點了哪個節點；點空白處是 null。問後端是 App 的事，畫布只回報 */
+  onSelect: (node: string | null) => void;
 }
 
 /** 點開的那條邊：位置與內容。 */
@@ -26,7 +30,7 @@ interface Pinned {
   details: ImportDetail[];
 }
 
-export function GraphCanvas({ graph, layout, spacing, query }: Props) {
+export function GraphCanvas({ graph, layout, spacing, query, impact, onSelect }: Props) {
   const canvasBox = useRef<HTMLDivElement>(null);
   const minimapBox = useRef<HTMLDivElement>(null);
   const viewportBox = useRef<HTMLDivElement>(null);
@@ -39,6 +43,11 @@ export function GraphCanvas({ graph, layout, spacing, query }: Props) {
   const spacingRef = useRef(spacing);
   // 多這個 state 不會重建畫布：cytoscape 實例在 ref，建立它的 effect 依賴是 []。
   const [pinned, setPinned] = useState<Pinned | null>(null);
+  // 事件是建立實例時就註冊的，只讀得到 ref 的當下值
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+  // 波紋亮著的時候 hover 不動它，否則滑鼠一掃過就把整片還原了
+  const waving = useRef(false);
 
   // 只建立一次。重建會失去 pan / zoom。
   useEffect(() => {
@@ -65,12 +74,20 @@ export function GraphCanvas({ graph, layout, spacing, query }: Props) {
     mini.current = map;
 
     main.on('mouseover', 'node', (event) => {
+      if (waving.current) return;
       main.elements().addClass('dim');
       event.target.closedNeighborhood().removeClass('dim').addClass('hl');
     });
     main.on('mouseout', 'node', () => {
+      if (waving.current) return;
       main.elements().removeClass('dim hl');
       highlight(main, queryRef.current);
+    });
+
+    // 點節點看影響範圍，點空白處還原
+    main.on('tap', 'node', (event) => onSelectRef.current(event.target.id()));
+    main.on('tap', (event) => {
+      if (event.target === main) onSelectRef.current(null);
     });
     main.on('viewport', () => drawViewport(main, map, viewportBox.current));
 
@@ -138,6 +155,51 @@ export function GraphCanvas({ graph, layout, spacing, query }: Props) {
       drawViewport(main, mini.current, viewportBox.current);
     }
   }, [spacing]);
+
+  // 影響範圍：每 IMPACT_STEP_MS 亮一層。呼叫線平常不在圖上，第幾步亮的呼叫者
+  // 就在第幾步把它那條線加進來；還原時整批拿掉。
+  useEffect(() => {
+    const main = cy.current;
+    if (!main) return;
+
+    main.remove('.impact-edge');
+    main.elements().removeClass('dim hl match impact impact-origin');
+    waving.current = impact !== null;
+    if (!impact) {
+      highlight(main, queryRef.current);
+      return;
+    }
+
+    main.elements().addClass('dim');
+    const timers: number[] = [];
+    for (let step = 0; step <= impact.steps; step += 1) {
+      timers.push(
+        window.setTimeout(() => {
+          main
+            .nodes()
+            .filter((node) => impact.depthOf.get(node.id()) === step)
+            .removeClass('dim')
+            .addClass(step === 0 ? 'impact-origin' : 'impact');
+          main.add(
+            impact.edges
+              .filter(
+                (edge) =>
+                  impact.depthOf.get(edge.data.source) === step &&
+                  main.hasElementWithId(edge.data.source) &&
+                  main.hasElementWithId(edge.data.target),
+              )
+              .map((edge) => ({
+                group: 'edges' as const,
+                data: { ...edge.data },
+                classes: 'impact-edge',
+              })),
+          );
+        }, step * IMPACT_STEP_MS),
+      );
+    }
+    // 換成另一個節點或還原時，還沒跑的那幾步不能再跑
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [impact]);
 
   useEffect(() => {
     const main = cy.current;

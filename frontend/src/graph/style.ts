@@ -26,12 +26,19 @@ export const palette = {
   //: `inherits` 不是骨架而是關係（跟 `imports` 同一類），所以取跟 class 節點
   //: 同一個粉色系——「這條線講的是 class 之間的事」用顏色就看得出來
   edgeInherits: '#d97fb8',
+  //: `calls` 平常不畫，只在點節點看影響範圍時出現——所以它跟「波及」同一個顏
+  //: 色。青綠在整張圖裡沒有別人用，一亮起來就知道是這件事
+  edgeCalls: '#5eead4',
+  impact: '#5eead4',
   //: 浮在圖上的面板（細節框）用的亮邊。中性灰藍，不跟任何型別的顏色重疊——
   //: 框不是圖的一部分，配色也不該被讀成「某種節點」
   borderBright: '#8fa3c4',
   danger: '#ff6b6b',
   accent: '#a78bfa',
 };
+
+/** 影響範圍一層一層亮起來的間隔（毫秒）。2D 與 3D 共用。 */
+export const IMPACT_STEP_MS = 300;
 
 export const graphStyle = [
   {
@@ -213,6 +220,31 @@ export const graphStyle = [
   {
     selector: 'node:selected',
     style: { 'border-width': 3, 'border-color': palette.accent },
+  },
+
+  // ── 影響範圍（點節點）───────────────────────────────────────
+  {
+    // 呼叫線只在這時候出現，跟波及同色，箭頭指向被呼叫的那個
+    selector: 'edge[type = "calls"]',
+    style: {
+      'line-color': palette.edgeCalls,
+      'target-arrow-color': palette.edgeCalls,
+      'arrow-scale': 1.1,
+    },
+  },
+  {
+    selector: 'node.impact',
+    style: { 'border-width': 3, 'border-color': palette.impact, opacity: 1 },
+  },
+  {
+    // 點的那一個：框更粗、字也換色，一眼找得到波紋從哪裡開始
+    selector: 'node.impact-origin',
+    style: {
+      'border-width': 5,
+      'border-color': palette.impact,
+      color: palette.impact,
+      opacity: 1,
+    },
   },
 ];
 
